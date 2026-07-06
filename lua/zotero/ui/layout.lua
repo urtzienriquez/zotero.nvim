@@ -11,6 +11,8 @@ local state = {
   is_open = false,
 }
 
+local collections_hidden = false
+
 function M.create_layout()
   local collections_buf = vim.api.nvim_create_buf(false, true)
   local items_buf = vim.api.nvim_create_buf(false, true)
@@ -31,13 +33,18 @@ function M.create_layout()
   local items_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(items_win, items_buf)
   vim.wo[items_win].wrap = false
+  vim.wo[items_win].spell = false
 
   -- split left for collections
-  local collections_win = vim.api.nvim_open_win(collections_buf, true, {
-    split = "left",
-    win = items_win,
-    width = collections_width,
-  })
+  local collections_win = nil
+  if not collections_hidden then
+    collections_win = vim.api.nvim_open_win(collections_buf, true, {
+      split = "left",
+      win = items_win,
+      width = collections_width,
+    })
+    vim.wo[collections_win].spell = false
+  end
 
   local tabpage = vim.api.nvim_win_get_tabpage(items_win)
 
@@ -106,6 +113,7 @@ function M.toggle_collections()
   if state.collections_win and vim.api.nvim_win_is_valid(state.collections_win) then
     vim.api.nvim_win_close(state.collections_win, true)
     state.collections_win = nil
+    collections_hidden = true
   else
     local total_width = vim.o.columns
     local collections_width = math.max(25, math.floor(total_width * 0.2))
@@ -114,6 +122,7 @@ function M.toggle_collections()
       win = state.items_win,
       width = collections_width,
     })
+    collections_hidden = false
     require("zotero.ui.collections").render()
   end
 end

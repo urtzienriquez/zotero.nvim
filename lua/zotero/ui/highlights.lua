@@ -6,6 +6,7 @@ function M.setup()
   hl(0, "ZoteroCollections", { link = "NormalFloat" })
   hl(0, "ZoteroItems", { link = "Normal" })
   hl(0, "ZoteroDetail", { link = "NormalFloat" })
+  hl(0, "ZoteroDetailBackdrop", { bg = "Black" })
 
   hl(0, "ZoteroCollectionSelected", { link = "CursorLine" })
   hl(0, "ZoteroItemSelected", { link = "CursorLine" })

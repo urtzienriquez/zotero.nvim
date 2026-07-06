@@ -109,7 +109,10 @@ function M.refresh_display()
 
   M.apply_highlights(buf)
 
-  vim.api.nvim_win_set_cursor(layout.get_collections_win(), { cursor_line, 0 })
+  local win = layout.get_collections_win()
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
+  end
 end
 
 function M.apply_highlights(buf)

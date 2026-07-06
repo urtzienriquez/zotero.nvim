@@ -4,6 +4,8 @@ local db = require("zotero.db")
 
 local float_win = nil
 local float_buf = nil
+local backdrop_win = nil
+local backdrop_buf = nil
 local current_item_id = nil
 
 local PRIORITY_FIELDS = {
@@ -196,8 +198,24 @@ function M.show_item(item_id)
     end
   end
 
-  table.insert(lines, "")
   table.insert(lines, "  [press q to close]")
+
+  -- backdrop
+  backdrop_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[backdrop_buf].buftype = "nofile"
+  backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
+    relative = "editor",
+    width = vim.o.columns,
+    height = vim.o.lines,
+    row = 0,
+    col = 0,
+    style = "minimal",
+    border = "none",
+    zindex = 49,
+    focusable = false,
+  })
+  vim.wo[backdrop_win].winhl = "Normal:ZoteroDetailBackdrop"
+  vim.wo[backdrop_win].winblend = 60
 
   float_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[float_buf].modifiable = true
@@ -205,8 +223,8 @@ function M.show_item(item_id)
   vim.bo[float_buf].modifiable = false
   vim.bo[float_buf].filetype = "zotero-detail"
 
-  local width = math.min(80, vim.o.columns - 4)
-  local height = math.min(#lines + 2, vim.o.lines - 4)
+  local width = math.min(120, vim.o.columns - 8)
+  local height = math.min(#lines, vim.o.lines - 6)
   local row = math.floor((vim.o.lines - height) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
 
@@ -220,6 +238,7 @@ function M.show_item(item_id)
     border = "rounded",
     title = " Item Details ",
     title_pos = "center",
+    zindex = 50,
   })
 
   M.apply_highlights(float_buf)
@@ -330,12 +349,20 @@ function M.wrap_text(text, width)
 end
 
 function M.close()
+  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
+    vim.api.nvim_win_close(backdrop_win, true)
+  end
+  if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
+    vim.api.nvim_buf_delete(backdrop_buf, { force = true })
+  end
   if float_win and vim.api.nvim_win_is_valid(float_win) then
     vim.api.nvim_win_close(float_win, true)
   end
   if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
     vim.api.nvim_buf_delete(float_buf, { force = true })
   end
+  backdrop_win = nil
+  backdrop_buf = nil
   float_win = nil
   float_buf = nil
   current_item_id = nil

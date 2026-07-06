@@ -53,6 +53,7 @@ function M.fuzzy_find()
     end
     for _, item in ipairs(items) do
       item._authors = types.format_creators(creators_by_item[item.itemID] or {})
+      item._authors_compact = types.format_creators_compact(creators_by_item[item.itemID] or {})
     end
   end
 

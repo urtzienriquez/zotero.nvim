@@ -189,6 +189,7 @@ Items Pane~
   <leader>z/      Search
   <leader>zc      Clear search
   <leader>zr      Refresh
+  <leader>zv      Toggle column view (configured/compact/normal/full)
   <leader>zk      Regenerate BibTeX citation key
   <leader>zt      Toggle collections pane
   <Tab>           Focus collections pane
