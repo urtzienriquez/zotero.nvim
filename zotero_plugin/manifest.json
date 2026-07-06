@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "Zotero Neovim Connector",
+  "version": "1.0.0",
+  "description": "Adds updateItem endpoint to the Zotero connector API for use with zotero.nvim",
+  "homepage_url": "https://github.com/urtzi/zotero.nvim",
+  "applications": {
+    "zotero": {
+      "id": "zotero-nvim-connector@urtzi",
+      "update_url": "https://github.com/urtzi/zotero.nvim/releases/latest/download/update.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "11.0.*"
+    }
+  }
+}

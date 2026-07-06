@@ -1,0 +1,240 @@
+*doc/zotero.txt*  *zotero* *zotero.nvim*
+
+==============================================================================
+CONTENTS                                                    *zotero-contents*
+
+  1. Introduction ............................ |zotero-introduction|
+  2. Requirements ............................ |zotero-requirements|
+  3. Installation ............................ |zotero-installation|
+  4. Configuration ........................... |zotero-config|
+  5. Usage ................................... |zotero-usage|
+  6. Keymaps ................................. |zotero-keymaps|
+  7. Commands ................................ |zotero-commands|
+  8. Public API .............................. |zotero-api|
+
+==============================================================================
+INTRODUCTION                                            *zotero-introduction*
+
+zotero.nvim is a Neovim plugin that lets you browse your Zotero library
+without leaving the editor. It provides a full-featured buffer-based UI
+inspired by the Zotero desktop application, with:
+
+  - A collections tree (left pane) with expand/collapse and item counts
+  - An items list (right pane) with title, author, year, and type columns
+  - A detail panel showing full metadata, abstract, tags, notes, and
+    attachments
+  - Search across your entire library
+  - Sort by title, year, type, or date added
+  - Open attached PDFs from within Neovim
+  - Import PDFs directly into Zotero via the Connector API
+  - Edit item metadata (requires companion Zotero plugin)
+
+zotero.nvim reads your Zotero SQLite database directly — no Better BibTeX
+export required.
+
+==============================================================================
+REQUIREMENTS                                            *zotero-requirements*
+
+  - Neovim >= 0.9
+  - sqlite3 CLI binary (install via your package manager, e.g.
+    `sudo apt install sqlite3` or `brew install sqlite3`)
+  - A local Zotero database at one of the standard locations:
+    ~/Zotero/zotero.sqlite
+    ~/.zotero/zotero.sqlite
+    ~/.local/share/zotero/zotero.sqlite
+
+==============================================================================
+INSTALLATION                                            *zotero-installation*
+
+lazy.nvim~
+>lua
+    {
+      "urtzienriquez/zotero.nvim",
+      config = function()
+        require("zotero").setup({
+          db_path = "~/Zotero/zotero.sqlite",  -- optional, auto-detected
+        })
+      end,
+    }
+<
+
+Neovim native package manager~
+>lua
+    vim.pack.add({
+      'https://github.com/urtzienriquez/zotero.nvim',
+    })
+
+    require("zotero").setup()
+<
+
+==============================================================================
+CONFIGURATION                                            *zotero-config*
+
+>lua
+    require("zotero").setup({
+      -- Path to zotero.sqlite. Auto-detected if not set.
+      db_path = "~/Zotero/zotero.sqlite",
+
+      -- Custom columns to display in items list.
+      -- Available: "#", "key", "title", "authors", "year",
+      --            "journal", "dateAdded", "type"
+      columns = { "#", "title", "authors", "year", "type" },
+
+      keymaps = {
+        enabled = true,
+        open_library = "<leader>zz",
+      },
+
+      -- Command to open PDF attachments (default: xdg-open)
+      pdf_viewer = "xdg-open",
+
+      -- Max items to load at once (prevents lag with huge libraries)
+      max_items = 500,
+    })
+<
+
+==============================================================================
+ZOTERO PLUGIN                                         *zotero-companion-plugin*
+
+For metadata editing and Better BibTeX key regeneration, install the companion
+Zotero plugin:
+
+>bash
+    cd zotero_plugin
+    ./build.sh
+    # Then in Zotero: Tools → Add-ons → Install From File → select the .xpi
+<
+
+After installing and restarting Zotero, the following features are available in
+the edit buffer (opened with |<leader>ze| on an item):
+
+  - :ZoteroSave            Save changes to Zotero
+  - <leader>zs             Save changes to Zotero (alternative)
+  - ?                      List available field names for the item type
+  - <leader>zk             Regenerate Better BibTeX citation key
+  - q                      Close editor
+
+==============================================================================
+USAGE                                                          *zotero-usage*
+
+Open the Zotero library browser with:
+
+  :Zotero
+
+Or use the default keymap: |zotero-keymaps|
+
+The browser opens in a split layout:
+
+>ascii
+  ┌──────────────┬──────────────────────────────────────┐
+  │ My Library   │  #  Title          Author  Year Type │
+  │ ├─ Biology   │  1  Paper A ...    Smith   2024 art  │
+  │ ├─ Chemistry │  2  Paper B ...    Jones   2023 art  │
+  │ └─ Physics   │                                      │
+  ├──────────────┴──────────────────────────────────────┤
+  │  Title: Paper A                                      │
+  │  Authors: Smith, John                                │
+  │  Abstract: ...                                       │
+  └─────────────────────────────────────────────────────┘
+<
+
+Collections Pane~
+  Navigate the tree with |j|/|k|. Expand/collapse with |l|/|h|.
+  Press |<CR>| to select a collection and load its items.
+
+Items Pane~
+  Scroll items with |j|/|k|. Press |<CR>| to see the full item
+  detail. Search with |<leader>z/|, clear with |<leader>zc|.
+  Sort with |<leader>zs|/|<leader>zS|/|<leader>zt|/|<leader>zd|.
+
+Detail Panel~
+  Shows full metadata for the selected item, including abstract,
+  tags, notes, and attachments. Press |q| or |<Esc>| to close.
+
+Edit Buffer~
+  Opened with |<leader>ze| on an item. Edit the JSON representation,
+  then type |:ZoteroSave| or press |<leader>zs| to save. Press |?|
+  to see valid field names. Press |<leader>zk| to regenerate the
+  Better BibTeX citation key.
+
+==============================================================================
+KEYMAPS                                                    *zotero-keymaps*
+
+Global~
+  <leader>zf      Fuzzy search all items
+  <leader>zz      Open/close Zotero browser
+
+Collections Pane~
+  j / k           Navigate up/down
+  <CR>            Select collection or Trash (loads items)
+  <Tab>           Focus items pane
+  <leader>zt      Toggle collections pane
+  <leader>zN      Create new collection
+  <leader>zD      Trash selected collection
+
+Items Pane~
+  j / k           Navigate up/down
+  <CR>            Show item detail
+  <leader>zo      Open attached file
+  <leader>zb      Open URL/DOI in browser
+  <leader>ze      Edit item metadata
+  <leader>zi      Import PDF (standalone)
+  <leader>za      Add PDF attachment to selected item
+  <leader>zm      Move item to collection
+  <leader>zn      Add item by identifier (DOI/ISBN/PMID/arXiv)
+  <leader>zD      Delete (trash) selected item; permanent delete in Trash view
+  <leader>zs      Sort by title
+  <leader>zS      Sort by year
+  <leader>zd      Sort by date added
+  <leader>z/      Search
+  <leader>zc      Clear search
+  <leader>zr      Refresh
+  <leader>zk      Regenerate BibTeX citation key
+  <leader>zt      Toggle collections pane
+  <Tab>           Focus collections pane
+  ?               Show help
+
+Edit Buffer~
+  :ZoteroSave     Save changes to Zotero
+  <leader>zs      Save changes (alternative)
+  ?               Show available field names
+  <leader>zk      Regenerate Better BibTeX citation key
+  q               Close editor
+
+==============================================================================
+COMMANDS                                                  *zotero-commands*
+
+:Zotero               Open the Zotero library browser
+:ZoteroDebug          Print database connection info and statistics
+:ZoteroImport {path}  Import a PDF into Zotero via the Connector API
+
+==============================================================================
+PUBLIC API                                                    *zotero-api*
+
+                                                    *zotero-setup()*
+setup({opts})~
+  Configure zotero.nvim. See |zotero-config| for options.
+
+                                              *zotero-open_library()*
+open_library()~
+  Open the Zotero library browser in a split layout.
+
+                                                *zotero-fuzzy_find()*
+fuzzy_find()~
+  Open a fuzzy search picker (fzf-lua or telescope) to search items.
+
+                                                  *zotero-import_pdf()*
+import_pdf({path})~
+  Import a PDF file into Zotero via the Connector API.
+
+                                                    *zotero-debug()*
+debug()~
+  Print database status and configuration info.
+
+==============================================================================
+
+Author:   Urtzi Enriquez
+License:  GNU General Public License v3.0
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
