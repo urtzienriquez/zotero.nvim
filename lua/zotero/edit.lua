@@ -92,6 +92,11 @@ function M.open_edit(item_id)
     M.save_edit(buf_id)
   end, { desc = "Save changes to Zotero" })
 
+  -- <leader>zs to save
+  vim.keymap.set("n", "<leader>zs", function()
+    M.save_edit(buf_id)
+  end, { buffer = buf, silent = true, desc = "zotero: save changes" })
+
   -- q to close
   vim.keymap.set("n", "q", function()
     local pw = vim.b[buf_id].zotero_prev_win
