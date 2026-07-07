@@ -290,6 +290,10 @@ function M.load_marked()
   M.fetch_and_render()
 end
 
+function M.restore_session()
+  M.fetch_and_render()
+end
+
 function M.fetch_and_render(refresh_collections)
   local items
   if is_trash_mode then
