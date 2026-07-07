@@ -553,4 +553,14 @@ function M.get_item_type_fields(item_type_id)
   return json_query(sql)
 end
 
+function M.get_all_item_types()
+  local sql = [[
+    SELECT typeName, itemTypeID
+    FROM itemTypes
+    WHERE itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+    ORDER BY typeName COLLATE NOCASE
+  ]]
+  return json_query(sql)
+end
+
 return M

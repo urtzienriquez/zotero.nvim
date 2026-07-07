@@ -11,6 +11,7 @@ async function startup({ id, version, resourceURI, rootURI }) {
     supportedMethods: ["POST"],
     supportedDataTypes: ["application/json"],
     init: async function (requestData) {
+      try {
       var data = requestData.data;
       var itemKey = data.itemKey;
       var updates = data.updates;
@@ -42,10 +43,20 @@ async function startup({ id, version, resourceURI, rootURI }) {
         });
         item.setTags(newTags);
       }
+      if (updates.itemType) {
+        var typeID = Zotero.ItemTypes.getID(updates.itemType);
+        if (typeID && typeID !== item.itemTypeID) {
+          item.setType(typeID);
+        }
+      }
 
       await item.save();
 
       return [200, "application/json", JSON.stringify({ success: true })];
+      } catch (e) {
+        Zotero.logError("updateItem error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
     },
   };
 

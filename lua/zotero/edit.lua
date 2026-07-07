@@ -25,6 +25,7 @@ end
 local function fill_buffer(buf, data, item_id)
   local header_text = string.format(HEADER, data.key, data.itemType)
   local editable = {
+    itemType = data.itemType,
     fields = data.fields,
     creators = data.creators,
     tags = data.tags,
@@ -41,6 +42,16 @@ local function fill_buffer(buf, data, item_id)
   vim.b[buf].zotero_original = data
   vim.b[buf].zotero_key = data.key
   vim.b[buf].zotero_item_id = item_id
+  vim.b[buf].zotero_item_type_name = data.itemType
+
+  local all_types = db.get_all_item_types()
+  for _, t in ipairs(all_types) do
+    if t.typeName == data.itemType then
+      vim.b[buf].zotero_item_type_id = t.itemTypeID
+      break
+    end
+  end
+
   vim.b[buf].zotero_header_lines = #header_lines
   vim.bo[buf].modified = false
 end
@@ -106,7 +117,7 @@ function M.open_edit(item_id)
     vim.api.nvim_buf_delete(buf_id, { force = true })
   end, { buffer = buf, silent = true, desc = "zotero: close editor" })
 
-  -- ? to show available fields
+  -- ? to show available fields and item types
   vim.keymap.set("n", "?", function()
     local item_type_id = vim.b[buf_id].zotero_item_type_id
     local type_name = vim.b[buf_id].zotero_item_type_name or "unknown"
@@ -117,8 +128,16 @@ function M.open_edit(item_id)
     end
     table.sort(names)
     local help_text = "Available fields for " .. type_name .. ":\n" .. table.concat(names, "\n")
+
+    local all_types = db.get_all_item_types()
+    local type_names = {}
+    for _, t in ipairs(all_types) do
+      type_names[#type_names + 1] = "  " .. t.typeName
+    end
+    help_text = help_text .. "\n\nAvailable item types:\n" .. table.concat(type_names, "\n")
+
     vim.notify(help_text, vim.log.levels.INFO, { title = "zotero: fields" })
-  end, { buffer = buf, silent = true, desc = "zotero: show available fields" })
+  end, { buffer = buf, silent = true, desc = "zotero: show available fields and types" })
 
   -- <leader>zk to regenerate Better BibTeX citation key
   vim.keymap.set("n", "<leader>zk", function()
@@ -160,19 +179,56 @@ function M.save_edit(bufnr)
     return
   end
 
-  -- Validate fields against allowed field names
-  local item_type_id = vim.b[bufnr].zotero_item_type_id
+  local original = vim.b[bufnr].zotero_original
+  local key = vim.b[bufnr].zotero_key
+  local item_id = vim.b[bufnr].zotero_item_id
+
+  -- Validate itemType if changed
+  if updated.itemType and updated.itemType ~= original.itemType then
+    local all_types = db.get_all_item_types()
+    local valid_types = {}
+    for _, t in ipairs(all_types) do
+      valid_types[t.typeName] = true
+    end
+    if not valid_types[updated.itemType] then
+      vim.notify(
+        "zotero: invalid item type: " .. updated.itemType .. "\nPress ? to see available types",
+        vim.log.levels.ERROR
+      )
+      return
+    end
+  end
+
+  -- Validate fields against allowed field names (use new type if changed)
+  local lookup_type_id = vim.b[bufnr].zotero_item_type_id
+  if updated.itemType and updated.itemType ~= original.itemType then
+    local all_types = db.get_all_item_types()
+    for _, t in ipairs(all_types) do
+      if t.typeName == updated.itemType then
+        lookup_type_id = t.itemTypeID
+        break
+      end
+    end
+  end
   local valid_fields = {}
-  local all_fields = db.get_item_type_fields(item_type_id)
+  local all_fields = db.get_item_type_fields(lookup_type_id)
   for _, f in ipairs(all_fields) do
     valid_fields[f.fieldName] = true
   end
 
   if updated.fields then
+    local type_changed = updated.itemType and updated.itemType ~= original.itemType
     local invalid = {}
     for field, _ in pairs(updated.fields) do
       if not valid_fields[field] then
-        invalid[#invalid + 1] = field
+        if type_changed then
+          local orig_val = original and original.fields[field]
+          if orig_val == nil or tostring(updated.fields[field]) ~= tostring(orig_val) then
+            invalid[#invalid + 1] = field
+          end
+        else
+          invalid[#invalid + 1] = field
+        end
       end
     end
     if #invalid > 0 then
@@ -222,10 +278,6 @@ function M.save_edit(bufnr)
     end
   end
 
-  local original = vim.b[bufnr].zotero_original
-  local key = vim.b[bufnr].zotero_key
-  local item_id = vim.b[bufnr].zotero_item_id
-
   local updates = {
     fields = {},
     creators = updated.creators or {},
@@ -249,8 +301,15 @@ function M.save_edit(bufnr)
     end
   end
 
+  if updated.itemType and updated.itemType ~= original.itemType then
+    updates.itemType = updated.itemType
+  end
+
   local has_changes = false
   if next(updates.fields) then
+    has_changes = true
+  end
+  if updates.itemType then
     has_changes = true
   end
   if original and #updates.creators ~= #original.creators then
