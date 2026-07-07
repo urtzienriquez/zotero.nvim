@@ -563,4 +563,82 @@ function M.get_all_item_types()
   return json_query(sql)
 end
 
+function M.get_items_by_field_value(field_name, value)
+  local field_id = FIELD_IDS[field_name]
+  if not field_id then
+    return {}
+  end
+  local sql = [[
+    SELECT i.itemID, i.key, t.value AS title
+    FROM itemData id
+    JOIN itemDataValues dv ON id.valueID = dv.valueID
+    JOIN items i ON id.itemID = i.itemID
+    LEFT JOIN (
+      SELECT id2.itemID, dv2.value AS value
+      FROM itemData id2
+      JOIN itemDataValues dv2 ON id2.valueID = dv2.valueID
+      WHERE id2.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE id.fieldID = ]] .. field_id .. [[
+      AND dv.value = ']] .. types.escape_sql(value) .. [['
+      AND i.itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+      AND ]] .. not_trashed() .. [[
+  ]]
+  return json_query(sql)
+end
+
+function M.get_item_by_key(key)
+  local sql = [[
+    SELECT i.itemID, i.key, t.value AS title
+    FROM items i
+    LEFT JOIN (
+      SELECT id.itemID, dv.value AS value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE i.key = ']] .. types.escape_sql(key) .. [['
+  ]]
+  local results = json_query(sql)
+  return results[1]
+end
+
+function M.get_item_field_value(key, field_name)
+  local field_id = FIELD_IDS[field_name]
+  if not field_id then
+    return nil
+  end
+  local sql = [[
+    SELECT dv.value
+    FROM itemData id
+    JOIN itemDataValues dv ON id.valueID = dv.valueID
+    JOIN items i ON id.itemID = i.itemID
+    WHERE i.key = ']] .. types.escape_sql(key) .. [['
+      AND id.fieldID = ]] .. field_id .. [[
+  ]]
+  local results = json_query(sql)
+  if results and #results > 0 then
+    return results[1].value
+  end
+  return nil
+end
+
+function M.get_parent_item_by_attachment_key(attachment_key)
+  local sql = [[
+    SELECT p.itemID, p.key, t.value AS title
+    FROM items a
+    JOIN itemAttachments att ON a.itemID = att.itemID
+    JOIN items p ON att.parentItemID = p.itemID
+    LEFT JOIN (
+      SELECT id.itemID, dv.value AS value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON p.itemID = t.itemID
+    WHERE a.key = ']] .. types.escape_sql(attachment_key) .. [['
+  ]]
+  local results = json_query(sql)
+  return results[1]
+end
+
 return M

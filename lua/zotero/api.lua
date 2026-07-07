@@ -185,6 +185,198 @@ local function try_save_items(path, filename, title, collection_key)
   return true
 end
 
+local function detect_identifier_type(identifier)
+  if not identifier or identifier == "" then
+    return nil
+  end
+  if identifier:match("^10%.") then
+    return "DOI"
+  end
+  local doi_url_match = identifier:match("^https?://[^/]+/doi[^/]*/(10%..+)$")
+  if doi_url_match then
+    return "DOI"
+  end
+  local cleaned = identifier:gsub("[%-]", "")
+  if cleaned:match("^%d%d%d%d%d%d%d%d%d%d$") or cleaned:match("^%d%d%d%d%d%d%d%d%d%d%d%d%d$") then
+    return "ISBN"
+  end
+  local lower = identifier:lower()
+  if lower:match("^pmid") then
+    return "PMID"
+  end
+  if lower:match("^pmc") then
+    return "PMCID"
+  end
+  return nil
+end
+
+local function extract_doi(identifier)
+  if not identifier then return nil end
+  local bare = identifier:match("^(10%..+)$")
+  if bare then return bare end
+  return identifier:match("^https?://[^/]+/doi[^/]*/(10%..+)$")
+end
+
+local function check_duplicates_after_add(identifier, new_keys)
+  local db = require("zotero.db")
+
+  local id_type = detect_identifier_type(identifier)
+  if not id_type then
+    return
+  end
+
+  local search_value = identifier
+  if id_type == "DOI" then
+    local extracted = extract_doi(identifier)
+    if extracted then
+      search_value = extracted
+    end
+  end
+
+  local matches = db.get_items_by_field_value(id_type, search_value)
+  if #matches <= 1 then
+    return
+  end
+
+  local new_set = {}
+  for _, k in ipairs(new_keys) do
+    new_set[k] = true
+  end
+
+  local existing = {}
+  for _, m in ipairs(matches) do
+    if not new_set[m.key] then
+      existing[#existing + 1] = m
+    end
+  end
+
+  if #existing == 0 then
+    return
+  end
+
+  local new_titles = {}
+  for _, m in ipairs(matches) do
+    if new_set[m.key] then
+      new_titles[#new_titles + 1] = m.title or "(no title)"
+    end
+  end
+
+  local existing_titles = {}
+  for _, m in ipairs(existing) do
+    existing_titles[#existing_titles + 1] = m.title or "(no title)"
+  end
+
+  vim.notify(
+    string.format(
+      "Duplicate items detected!\nNew:  %s\nExisting:  %s",
+      table.concat(new_titles, ", "),
+      table.concat(existing_titles, ", ")
+    ),
+    vim.log.levels.WARN,
+    { title = "zotero" }
+  )
+
+  vim.schedule(function()
+    vim.ui.select({
+      "Keep the newly added item (delete old)",
+      "Keep the existing item(s) (delete new)",
+      "Merge all items into one",
+      "Do nothing (leave duplicates)",
+    }, {
+      prompt = "Duplicate items found. What do you want to do?",
+    }, function(choice)
+      if choice == "Keep the newly added item (delete old)" then
+        local old_keys = vim.tbl_map(function(m) return m.key end, existing)
+        if M.delete_items(old_keys) then
+          vim.notify("zotero: deleted " .. #old_keys .. " old duplicate(s)", vim.log.levels.INFO)
+        end
+      elseif choice == "Keep the existing item(s) (delete new)" then
+        if M.erase_items(new_keys) then
+          vim.notify("zotero: deleted " .. #new_keys .. " new duplicate(s)", vim.log.levels.INFO)
+        end
+      elseif choice == "Merge all items into one" then
+        local other_keys = vim.tbl_map(function(m) return m.key end, existing)
+        M.merge_items(new_keys[1], other_keys)
+      end
+    end)
+  end)
+end
+
+local function check_duplicates_after_import(filename, new_key)
+  if not new_key then
+    return
+  end
+
+  local db = require("zotero.db")
+
+  local parent = db.get_parent_item_by_attachment_key(new_key)
+  local search_key = new_key
+  if parent then
+    search_key = parent.key
+  end
+
+  local matches = {}
+  local search_title = (parent and parent.title) or nil
+
+  local doi = db.get_item_field_value(search_key, "DOI")
+  if doi then
+    matches = db.get_items_by_field_value("DOI", doi)
+  end
+
+  if #matches <= 1 and search_title then
+    matches = db.get_items_by_field_value("title", search_title)
+  end
+
+  if #matches <= 1 then
+    return
+  end
+
+  local existing = {}
+  for _, m in ipairs(matches) do
+    if m.key ~= search_key then
+      existing[#existing + 1] = m
+    end
+  end
+
+  if #existing == 0 then
+    return
+  end
+
+  local existing_titles = {}
+  for _, m in ipairs(existing) do
+    existing_titles[#existing_titles + 1] = m.title or "(no title)"
+  end
+
+  vim.notify(
+    "Duplicate items detected!\nExisting: " .. table.concat(existing_titles, ", "),
+    vim.log.levels.WARN,
+    { title = "zotero" }
+  )
+
+  vim.schedule(function()
+    vim.ui.select({
+      "Keep the newly imported item (delete old)",
+      "Keep the existing item(s) (delete new)",
+      "Merge all items into one",
+      "Do nothing (leave duplicates)",
+    }, {
+      prompt = "Possible duplicate items found. What do you want to do?",
+    }, function(choice)
+      if choice == "Keep the newly imported item (delete old)" then
+        local old_keys = vim.tbl_map(function(m) return m.key end, existing)
+        if M.delete_items(old_keys) then
+          vim.notify("zotero: deleted " .. #old_keys .. " old duplicate(s)", vim.log.levels.INFO)
+        end
+      elseif choice == "Keep the existing item(s) (delete new)" then
+        M.erase_items({ (parent and parent.key) or new_key })
+      elseif choice == "Merge all items into one" then
+        local other_keys = vim.tbl_map(function(m) return m.key end, existing)
+        M.merge_items((parent and parent.key) or new_key, other_keys)
+      end
+    end)
+  end)
+end
+
 function M.add_by_identifier(identifier, collection_key)
   if not identifier or identifier == "" then
     vim.notify("zotero: no identifier provided", vim.log.levels.ERROR)
@@ -228,13 +420,22 @@ function M.add_by_identifier(identifier, collection_key)
   local ok, parsed = pcall(vim.fn.json_decode, body)
   if ok and type(parsed) == "table" and parsed.success then
     local added = parsed.added or 0
+    local new_keys = {}
     local titles = {}
     if parsed.items then
       for _, item in ipairs(parsed.items) do
         titles[#titles + 1] = item.title or "(no title)"
+        new_keys[#new_keys + 1] = item.key
       end
     end
     vim.notify("zotero: added " .. added .. " item(s): " .. table.concat(titles, ", "), vim.log.levels.INFO)
+
+    if #new_keys > 0 then
+      vim.defer_fn(function()
+        check_duplicates_after_add(identifier, new_keys)
+      end, 600)
+    end
+
     return true
   end
 
@@ -565,6 +766,49 @@ function M.erase_collection(collection_key)
   return true
 end
 
+function M.merge_items(item_key, other_keys)
+  if not item_key or not other_keys or #other_keys == 0 then
+    vim.notify("zotero: missing item key or other keys for merge", vim.log.levels.ERROR)
+    return false
+  end
+
+  if not M.ping() then
+    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
+    return false
+  end
+
+  local payload = vim.fn.json_encode({
+    itemKey = item_key,
+    otherItemKeys = other_keys,
+  })
+
+  local res = vim.fn.system({
+    "curl", "-s", "-w", "%{http_code}",
+    "-X", "POST",
+    BASE .. "/connector/mergeItems",
+    "-H", "Content-Type: application/json",
+    "-d", payload,
+  })
+
+  if vim.v.shell_error ~= 0 then
+    vim.notify("zotero: merge failed (curl error)", vim.log.levels.ERROR)
+    return false
+  end
+
+  local code = tonumber(res:sub(-3))
+  local body = #res > 3 and res:sub(1, -4) or ""
+
+  if code ~= 200 then
+    local ok, parsed = pcall(vim.fn.json_decode, body)
+    local msg = (ok and parsed and parsed.error) and parsed.error or ("HTTP " .. tostring(code))
+    vim.notify("zotero: merge failed: " .. msg, vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: items merged successfully", vim.log.levels.INFO)
+  return true
+end
+
 function M.import_pdf(path, collection_key)
   if vim.fn.filereadable(path) ~= 1 then
     vim.notify("zotero: file not found: " .. path, vim.log.levels.ERROR)
@@ -608,6 +852,9 @@ function M.import_pdf(path, collection_key)
       else
         vim.notify("zotero: imported '" .. filename .. "' (no metadata found in PDF)", vim.log.levels.INFO)
       end
+      vim.defer_fn(function()
+        check_duplicates_after_import(filename, parsed.itemKey)
+      end, 600)
       return true
     end
   end

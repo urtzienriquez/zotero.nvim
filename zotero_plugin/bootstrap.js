@@ -562,6 +562,51 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  Zotero.Server.Endpoints["/connector/mergeItems"] = function () {};
+  Zotero.Server.Endpoints["/connector/mergeItems"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var itemKey = data.itemKey;
+        var otherItemKeys = data.otherItemKeys;
+
+        if (!itemKey || !otherItemKeys || !otherItemKeys.length) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_KEYS" })];
+        }
+
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var masterItem = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
+        if (!masterItem) {
+          return [404, "application/json", JSON.stringify({ error: "MASTER_ITEM_NOT_FOUND" })];
+        }
+
+        var otherItems = [];
+        for (var i = 0; i < otherItemKeys.length; i++) {
+          var item = Zotero.Items.getByLibraryAndKey(libraryID, otherItemKeys[i]);
+          if (item) {
+            otherItems.push(item);
+          }
+        }
+
+        if (!otherItems.length) {
+          return [400, "application/json", JSON.stringify({ error: "NO_OTHER_ITEMS_FOUND" })];
+        }
+
+        var { mergeItems } = ChromeUtils.importESModule(
+          "chrome://zotero/content/mergeItems.mjs"
+        );
+        await mergeItems(masterItem, otherItems);
+
+        return [200, "application/json", JSON.stringify({ success: true })];
+      } catch (e) {
+        Zotero.logError("mergeItems error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
     Zotero.logError("zotero-nvim-connector: startup complete");
   } catch (e) {
     Zotero.logError("zotero-nvim-connector: startup FAILED: " + (e.message || String(e)));
@@ -582,4 +627,5 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/trashCollection"];
   delete Zotero.Server.Endpoints["/connector/eraseCollection"];
   delete Zotero.Server.Endpoints["/connector/importFile"];
+  delete Zotero.Server.Endpoints["/connector/mergeItems"];
 }
