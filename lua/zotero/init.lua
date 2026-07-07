@@ -23,7 +23,7 @@ function M.open_library()
 
   require("zotero.ui.collections").render()
   require("zotero.ui.items").set_keymaps()
-  require("zotero.ui.items").load_items(nil)
+  require("zotero.ui.items").restore_session()
 
   vim.api.nvim_set_current_win(layout.get_items_win())
 end
