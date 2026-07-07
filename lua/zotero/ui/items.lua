@@ -45,6 +45,28 @@ local function min_cursor_line()
   return is_compact_mode() and 1 or 2
 end
 
+local function get_item_at_visible_line(line)
+  local idx = line_to_idx(line)
+  if idx < 1 then
+    return nil
+  end
+
+  if show_only_marked then
+    local n = 0
+    for _, item in ipairs(items_data) do
+      if marked_items[item.itemID] then
+        n = n + 1
+        if n == idx then
+          return item
+        end
+      end
+    end
+    return nil
+  end
+
+  return items_data[idx]
+end
+
 local COLUMN_DEFS = {
   ["#"] = { header = "  #", width = 4, align = "right", extract = function(item, idx) return (marked_items[item.itemID] and "*" or " ") .. tostring(idx) end },
   key = { header = "Key", width = 12, extract = function(item) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), 12) end },
@@ -417,12 +439,7 @@ local function on_enter()
     return
   end
   local cursor = vim.api.nvim_win_get_cursor(win)
-  local line = cursor[1]
-  local idx = line_to_idx(line)
-  if idx < 1 or idx > #items_data then
-    return
-  end
-  local item = items_data[idx]
+  local item = get_item_at_visible_line(cursor[1])
   if item then
     require("zotero.ui.detail").show_item(item.itemID)
   end
@@ -509,11 +526,7 @@ local function toggle_item_mark()
     return
   end
   local cur = vim.api.nvim_win_get_cursor(win)
-  local idx = line_to_idx(cur[1])
-  if idx < 1 or idx > #items_data then
-    return
-  end
-  local item = items_data[idx]
+  local item = get_item_at_visible_line(cur[1])
   if not item or not item.itemID then
     return
   end
@@ -536,6 +549,14 @@ local function toggle_item_mark()
   vim.bo[buf].modifiable = false
 
   M.apply_highlights(buf)
+
+  if cursor_line > #lines then
+    cursor_line = #lines
+  end
+  local mcl = min_cursor_line()
+  if cursor_line < mcl then
+    cursor_line = #lines >= mcl and mcl or 1
+  end
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
 
   require("zotero.ui.collections").refresh_display()
@@ -597,11 +618,7 @@ local function clear_search()
 end
 
 local function open_attachment()
-  local idx = line_to_idx(cursor_line)
-  if idx < 1 or idx > #items_data then
-    return
-  end
-  local item = items_data[idx]
+  local item = get_item_at_visible_line(cursor_line)
   if not item then
     return
   end
@@ -700,11 +717,7 @@ function M.set_keymaps()
   vim.keymap.set("n", "<leader>zo", open_attachment, { buffer = buf, silent = true, desc = "zotero: open attachment" })
 
   vim.keymap.set("n", "<leader>zb", function()
-    local idx = line_to_idx(cursor_line)
-    if idx < 1 or idx > #items_data then
-      return
-    end
-    local item = items_data[idx]
+    local item = get_item_at_visible_line(cursor_line)
     if not item then
       return
     end
@@ -771,11 +784,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: import PDF" })
 
   vim.keymap.set("n", "<leader>za", function()
-    local idx = line_to_idx(cursor_line)
-    if idx < 1 or idx > #items_data then
-      return
-    end
-    local item = items_data[idx]
+    local item = get_item_at_visible_line(cursor_line)
     if not item then
       return
     end
@@ -798,10 +807,9 @@ function M.set_keymaps()
     local seen = {}
     local to_delete = {}
     for line = start_line, end_line do
-      local idx = line_to_idx(line)
-      if idx >= 1 and idx <= #items_data and not seen[idx] then
-        seen[idx] = true
-        local item = items_data[idx]
+      local item = get_item_at_visible_line(line)
+      if item and not seen[item.itemID] then
+        seen[item.itemID] = true
         if item then
           to_delete[#to_delete + 1] = item
         end
@@ -891,11 +899,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
   vim.keymap.set("n", "<leader>zm", function()
-    local idx = line_to_idx(cursor_line)
-    if idx < 1 or idx > #items_data then
-      return
-    end
-    local item = items_data[idx]
+    local item = get_item_at_visible_line(cursor_line)
     if not item then
       return
     end
@@ -949,9 +953,8 @@ function M.set_keymaps()
   vim.keymap.set("n", "<leader>ze", function()
     local win = layout.get_items_win()
     local cursor = vim.api.nvim_win_get_cursor(win)
-    local idx = line_to_idx(cursor[1])
-    if idx >= 1 and idx <= #items_data then
-      local item = items_data[idx]
+    local item = get_item_at_visible_line(cursor[1])
+    if item then
       require("zotero.edit").open_edit(item.itemID)
     end
   end, { buffer = buf, silent = true, desc = "zotero: edit item" })
