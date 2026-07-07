@@ -403,8 +403,8 @@ local function toggle_sort(field)
   M.fetch_and_render()
 end
 
-local function toggle_columns()
-  _preset_index = (_preset_index + 1) % #PRESETS
+local function apply_preset(index)
+  _preset_index = index
   _compact_hl_regions = {}
   cursor_line = min_cursor_line()
 
@@ -430,6 +430,23 @@ local function toggle_columns()
   M.apply_highlights(buf)
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
   M.update_status()
+end
+
+local function toggle_columns()
+  local choices = {}
+  for i, p in ipairs(PRESETS) do
+    local label = p.name
+    if i - 1 == _preset_index then
+      label = label .. " (current)"
+    end
+    choices[#choices + 1] = label
+  end
+
+  vim.ui.select(choices, { prompt = "zotero view: " }, function(_, idx)
+    if idx and idx - 1 ~= _preset_index then
+      apply_preset(idx - 1)
+    end
+  end)
 end
 
 local function start_search()
