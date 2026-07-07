@@ -42,7 +42,7 @@ local function line_to_idx(line)
 end
 
 local function min_cursor_line()
-  return is_compact_mode() and 1 or 2
+  return is_compact_mode() and 1 or 3
 end
 
 local function get_item_at_visible_line(line)

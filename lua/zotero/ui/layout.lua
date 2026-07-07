@@ -34,6 +34,9 @@ function M.create_layout()
   vim.api.nvim_win_set_buf(items_win, items_buf)
   vim.wo[items_win].wrap = false
   vim.wo[items_win].spell = false
+  vim.wo[items_win].signcolumn = "yes"
+  vim.wo[items_win].cursorline = true
+  vim.wo[items_win].cursorlineopt = "line,number"
 
   -- split left for collections
   local collections_win = nil
@@ -44,6 +47,9 @@ function M.create_layout()
       width = collections_width,
     })
     vim.wo[collections_win].spell = false
+    vim.wo[collections_win].signcolumn = "yes"
+    vim.wo[collections_win].cursorline = true
+    vim.wo[collections_win].cursorlineopt = "line,number"
   end
 
   local tabpage = vim.api.nvim_win_get_tabpage(items_win)
@@ -123,6 +129,9 @@ function M.toggle_collections()
       width = collections_width,
     })
     collections_hidden = false
+    vim.wo[state.collections_win].signcolumn = "yes"
+    vim.wo[state.collections_win].cursorline = true
+    vim.wo[state.collections_win].cursorlineopt = "line,number"
     require("zotero.ui.collections").render()
   end
 end
