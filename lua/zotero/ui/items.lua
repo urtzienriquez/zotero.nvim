@@ -766,7 +766,7 @@ function M.set_keymaps()
     vim.ui.input({ prompt = "Import PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
-        local ok = require("zotero.api").import_pdf(vim.trim(path), col_key)
+        local ok = require("zotero.api").import_pdf(vim.fn.expand(vim.trim(path)), col_key)
         if ok then
           vim.defer_fn(function()
             M.fetch_and_render(true)
@@ -792,7 +792,7 @@ function M.set_keymaps()
     end
     vim.ui.input({ prompt = "Add attachment (PDF path): ", completion = "file" }, function(path)
       if path and path ~= "" then
-        local ok = require("zotero.api").add_attachment(item_key, vim.trim(path))
+        local ok = require("zotero.api").add_attachment(item_key, vim.fn.expand(vim.trim(path)))
         if ok then
           M.fetch_and_render(true)
         end
