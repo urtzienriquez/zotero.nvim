@@ -887,13 +887,13 @@ function M.set_keymaps()
       if start_line > end_line then
         start_line, end_line = end_line, start_line
       end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
     else
       start_line = cursor_line
       end_line = cursor_line
     end
 
     delete_items_in_range(start_line, end_line)
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", true)
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
   vim.keymap.set("n", "<leader>zm", function()
