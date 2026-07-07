@@ -250,6 +250,21 @@ function M.show_item(item_id)
   vim.keymap.set("n", "<Esc>", function()
     M.close()
   end, { buffer = float_buf, silent = true, nowait = true, desc = "zotero: close detail" })
+
+  vim.api.nvim_create_autocmd("WinClosed", {
+    buffer = float_buf,
+    once = true,
+    callback = function()
+      if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
+        vim.api.nvim_win_close(backdrop_win, true)
+        backdrop_win = nil
+      end
+      if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
+        vim.api.nvim_buf_delete(backdrop_buf, { force = true })
+        backdrop_buf = nil
+      end
+    end,
+  })
 end
 
 function M.apply_highlights(buf)
