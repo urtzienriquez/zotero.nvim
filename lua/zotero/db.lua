@@ -1,22 +1,35 @@
 local M = {}
 
 local types = require("zotero.types")
+local config_mod = require("zotero.config")
 
-local function db_path()
-  return require("zotero.config").get().db_path
+local _cfg = nil
+local function cfg()
+  if not _cfg then
+    _cfg = config_mod.get()
+  end
+  return _cfg
 end
 
 local db_copy = nil
+local db_last_mtime = nil
 
 local function get_db()
-  local path = db_path()
+  local path = cfg().db_path
   if not path then
     return nil
   end
   if not db_copy then
     db_copy = vim.fn.tempname()
   end
-  vim.fn.system({ "cp", path, db_copy })
+  local mtime = vim.fn.getftime(path)
+  if mtime == -1 then
+    return nil
+  end
+  if mtime ~= db_last_mtime then
+    vim.fn.system({ "cp", path, db_copy })
+    db_last_mtime = mtime
+  end
   return db_copy
 end
 
@@ -243,7 +256,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
 
   local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
 
-  local limit = limit_override or require("zotero.config").get().max_items
+  local limit = limit_override or cfg().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -304,7 +317,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
     order = order:gsub(" DESC", "") .. " ASC"
   end
 
-  local limit = limit_override or require("zotero.config").get().max_items
+  local limit = limit_override or cfg().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,

@@ -1,6 +1,8 @@
 local M = {}
 
 local db = require("zotero.db")
+local layout = require("zotero.ui.layout")
+local items = require("zotero.ui.items")
 
 local collections_data = {}
 local expanded = {}
@@ -48,7 +50,7 @@ local function get_display_lines()
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
 
-  local marked_count = require("zotero.ui.items").get_marked_count()
+  local marked_count = items.get_marked_count()
   table.insert(lines, {
     line = "  Marked Items (" .. tostring(marked_count) .. ")",
     collectionID = nil,
@@ -72,7 +74,6 @@ local function get_display_lines()
 end
 
 function M.render()
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_collections_buf()
   if not buf then
     return
@@ -97,7 +98,6 @@ function M.render()
 end
 
 function M.refresh_display()
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_collections_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -172,7 +172,6 @@ function M.get_collection_at_line(line)
 end
 
 local function on_enter()
-  local layout = require("zotero.ui.layout")
   local win = layout.get_collections_win()
   if not win then
     return
@@ -185,13 +184,13 @@ local function on_enter()
   end
 
   if entry.is_trash then
-    require("zotero.ui.items").load_trash()
+    items.load_trash()
     layout.focus_items()
     return
   end
 
   if entry.is_marked_items then
-    require("zotero.ui.items").load_marked()
+    items.load_marked()
     layout.focus_items()
     return
   end
@@ -202,7 +201,7 @@ local function on_enter()
 
   if entry.is_all_items then
     selected_collection_id = nil
-    require("zotero.ui.items").load_items(nil)
+    items.load_items(nil)
     layout.focus_items()
     return
   end
@@ -217,12 +216,11 @@ local function on_enter()
   end
 
   selected_collection_id = entry.collectionID
-  require("zotero.ui.items").load_items(entry.collectionID)
+  items.load_items(entry.collectionID)
   layout.focus_items()
 end
 
 local function move_cursor(delta)
-  local layout = require("zotero.ui.layout")
   local win = layout.get_collections_win()
   if not win then
     return
@@ -248,7 +246,6 @@ local function jump_section(direction)
     if not line.is_separator and line.line ~= "" then
       if line.is_all_items or line.is_marked_items or line.is_trash then
         cursor_line = target
-        local layout = require("zotero.ui.layout")
         local win = layout.get_collections_win()
         if win then
           vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
@@ -261,7 +258,6 @@ local function jump_section(direction)
 end
 
 function M.set_keymaps()
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_collections_buf()
   if not buf then
     return
@@ -294,7 +290,7 @@ function M.set_keymaps()
   vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: select collection" })
 
   vim.keymap.set("n", "<leader>zt", function()
-    require("zotero.ui.layout").toggle_collections()
+    layout.toggle_collections()
   end, { buffer = buf, silent = true, desc = "zotero: toggle collections pane" })
 
   vim.keymap.set("n", "<Tab>", function()

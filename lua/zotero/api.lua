@@ -383,10 +383,6 @@ function M.add_by_identifier(identifier, collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local data = { identifier = identifier }
   if collection_key then
@@ -449,10 +445,6 @@ function M.delete_item(item_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ itemKey = item_key })
 
@@ -488,10 +480,6 @@ function M.erase_item(item_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ itemKey = item_key })
 
@@ -526,10 +514,6 @@ function M.delete_items(item_keys)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ itemKeys = item_keys })
 
@@ -564,10 +548,6 @@ function M.erase_items(item_keys, collection_keys)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local data = {}
   if item_keys and #item_keys > 0 then
@@ -611,10 +591,6 @@ function M.create_collection(name, parent_collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local data = { name = name }
   if parent_collection_key and parent_collection_key ~= "" then
@@ -655,10 +631,6 @@ function M.add_to_collection(item_key, collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ itemKey = item_key, collectionKey = collection_key })
 
@@ -694,10 +666,6 @@ function M.trash_collection(collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ collectionKey = collection_key })
 
@@ -733,10 +701,6 @@ function M.erase_collection(collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({ collectionKey = collection_key })
 
@@ -772,10 +736,6 @@ function M.merge_items(item_key, other_keys)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local payload = vim.fn.json_encode({
     itemKey = item_key,
@@ -815,10 +775,6 @@ function M.import_pdf(path, collection_key)
     return false
   end
 
-  if not M.ping() then
-    vim.notify("zotero: Zotero connector API unreachable (is Zotero running?)", vim.log.levels.ERROR)
-    return false
-  end
 
   local filename = vim.fn.fnamemodify(path, ":t")
   local title = filename:gsub("%.pdf$", "", 1)
