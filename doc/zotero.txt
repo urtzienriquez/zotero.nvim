@@ -92,6 +92,12 @@ CONFIGURATION                                            *zotero-config*
         open_library = "<leader>zz",
       },
 
+      -- Initial sort column: "dateAdded", "year", "title"
+      default_sort = "dateAdded",
+
+      -- Initial sort direction: "desc" or "asc"
+      default_sort_dir = "desc",
+
       -- Fuzzy search backend: "fzf" or "telescope"
       backend = "fzf",
 

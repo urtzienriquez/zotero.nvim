@@ -45,6 +45,8 @@ Then run `:Zotero` or press `<leader>zz` to open.
 ```lua
 require("zotero").setup({
   db_path = nil,            -- auto-detected; set explicitly if needed
+  default_sort = "dateAdded", -- initial sort column: "dateAdded", "year", "title"
+  default_sort_dir = "desc",  -- initial sort direction: "desc" or "asc"
   max_items = 500,          -- max items loaded at once
   pdf_viewer = "xdg-open",  -- command to open PDFs (e.g. "zathura", "open")
   backend = "fzf",          -- fuzzy search backend: "fzf" or "telescope"

@@ -6,6 +6,8 @@ M.defaults = {
     enabled = true,
     open_library = "<leader>zz",
   },
+  default_sort = "dateAdded",
+  default_sort_dir = "desc",
   pdf_viewer = "xdg-open",
   backend = "fzf",
   max_items = 500,
