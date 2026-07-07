@@ -374,6 +374,9 @@ function M.apply_highlights(buf)
               local start_c = (j == 1) and 0 or (pipes[j - 1] + 4)
               local end_c = (j == #active_cols) and -1 or (pipes[j] - 1)
               vim.api.nvim_buf_add_highlight(buf, ns, hl_group, i - 1, start_c, end_c)
+            end
+          end
+        end
       end
     end
   end
@@ -385,9 +388,6 @@ function M.apply_highlights(buf)
       if star_pos then
         vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemMarker", i - 1, star_pos - 1, star_pos)
       end
-    end
-  end
-end
     end
   end
 end
@@ -723,7 +723,7 @@ function M.set_keymaps()
       vim.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
       return
     end
-  local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
+    local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
     vim.fn.jobstart({ viewer, link }, { detach = true })
   end, { buffer = buf, silent = true, desc = "zotero: open URL/DOI in browser" })
 

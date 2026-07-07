@@ -3,11 +3,30 @@
 Neovim plugin for browsing your Zotero library. Reads the SQLite database
 directly — no exports required.
 
+## Features
+
+- Collections tree with expand/collapse, item counts, and section jumps
+- Item table with configurable columns and column presets
+- Detail panel showing full metadata, abstract, tags, notes, attachments
+- Fuzzy search (fzf-lua / telescope) and literal search
+- Item marking system: toggle marks, filter to show only marked items
+- PDF import via Zotero Connector API with duplicate detection
+- Add items by identifier (DOI, ISBN, PMID, arXiv)
+- Add PDF attachments to existing items
+- Edit item metadata (requires companion Zotero plugin)
+- Batch delete / trash with visual selection support
+- Create and trash collections
+
 ## Requirements
 
 - Neovim >= 0.9
 - `sqlite3` CLI (e.g. `apt install sqlite3`)
-- A local Zotero database at `~/Zotero/zotero.sqlite`
+- A local Zotero database at one of the standard locations:
+  `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`,
+  `~/.local/share/zotero/zotero.sqlite`
+- **Zotero Connector**: In Zotero, enable *Settings → Advanced →
+  Allow other applications on this computer to communicate with Zotero*
+  (Required for PDF import, add-by-identifier, and metadata editing)
 
 ## Installation
 
@@ -19,33 +38,107 @@ directly — no exports required.
 }
 ```
 
-Then run `:Zotero` to open.
+Then run `:Zotero` or press `<leader>zz` to open.
 
-## Usage
+## Configuration
 
-| Keys | Action |
-|------|--------|
-| `j` / `k` | Navigate items |
+```lua
+require("zotero").setup({
+  db_path = nil,            -- auto-detected; set explicitly if needed
+  max_items = 500,          -- max items loaded at once
+  pdf_viewer = "xdg-open",  -- command to open PDFs (e.g. "zathura", "open")
+  backend = "fzf",          -- fuzzy search backend: "fzf" or "telescope"
+  columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
+  keymaps = {
+    enabled = true,                    -- register global keymaps
+    open_library = "<leader>zz",       -- toggle Zotero browser
+  },
+})
+```
+
+Available columns: `#`, `key`, `title`, `authors`, `year`, `journal`,
+`dateAdded`, `type`.
+
+Column presets can be cycled with `<leader>zv`: configured, compact,
+normal, full.
+
+## Keymaps
+
+### Global
+
+| Key | Action |
+|-----|--------|
+| `<leader>zz` | Open/close Zotero browser |
+| `<leader>zf` | Fuzzy search all items (fzf/telescope) |
+
+### Collections Pane
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate up/down |
+| `]]` / `[[` | Next / previous section |
+| `<CR>` | Select collection / expand-collapse / open Trash or Marked |
+| `<Tab>` | Focus items pane |
+| `<leader>zt` | Toggle collections pane |
+| `<leader>zN` | Create new collection |
+| `<leader>zD` | Trash selected collection |
+
+### Items Pane
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate up/down |
 | `<CR>` | Show item detail |
-| `<leader>zf` | Fuzzy search |
+| `<leader>zo` | Open attached file |
+| `<leader>zb` | Open URL/DOI in browser |
+| `<leader>ze` | Edit item metadata |
+| `<leader>zi` | Import PDF (standalone) |
+| `<leader>za` | Attach PDF to selected item |
+| `<leader>zm` | Move item to collection |
+| `<leader>zn` | Add item by identifier (DOI/ISBN/PMID/arXiv) |
+| `<leader>zD` | Delete item (trash; permanent delete in Trash view) |
+| `<leader>zs` | Sort by title |
+| `<leader>zS` | Sort by year |
+| `<leader>zd` | Sort by date added |
 | `<leader>z/` | Search (literal) |
 | `<leader>zc` | Clear search |
-| `<leader>zs` / `zS` / `zt` / `zd` | Sort by title/year/type/date |
-| `<leader>zo` | Open attachment |
-| `<leader>zb` | Open URL/DOI in browser |
-| `<leader>zi` | Import PDF (standalone) |
-| `<leader>za` | Add PDF attachment to item |
-| `<leader>ze` | Edit item metadata (requires plugin) |
 | `<leader>zr` | Refresh |
-| `?` | Help |
+| `<leader>zv` | Toggle column preset (configured/compact/normal/full) |
+| `<leader>zt` | Toggle collections pane |
+| `<leader>zM` | Toggle mark on item |
+| `<leader>zL` | Show only marked items |
+| `<Tab>` | Focus collections pane |
+| `?` | Show help popup |
 
-In collections pane: `h`/`l` collapse/expand, `<CR>` select, `<Tab>` switch panes.
+### Edit Buffer
 
-## PDF Import & Metadata Editing
+| Key | Action |
+|-----|--------|
+| `:ZoteroSave` / `<leader>zs` | Save changes to Zotero |
+| `?` | List available fields for item type |
+| `<leader>zk` | Regenerate Better BibTeX citation key |
+| `q` | Close editor |
 
-PDF import works out of the box via Zotero's connector API on `localhost:23119`.
+## Commands
 
-Metadata editing requires the companion Zotero plugin:
+| Command | Action |
+|---------|--------|
+| `:Zotero` | Open the Zotero library browser |
+| `:ZoteroDebug` | Print database path and stats |
+| `:ZoteroImport {path}` | Import a PDF via the Connector API |
+
+## PDF Import & Duplicate Detection
+
+`<leader>zi` and `:ZoteroImport` accept a file path and import the PDF
+into Zotero via the Connector API (`localhost:23119`). The plugin checks
+for duplicates by matching title and year (extracted from PDF metadata)
+against existing items. If a potential duplicate is found, a
+`vim.ui.select` prompt lets you skip, add anyway, or replace.
+
+## Zotero Companion Plugin
+
+Metadata editing (`<leader>ze`) and Better BibTeX key regeneration
+require the companion plugin:
 
 ```bash
 cd zotero_plugin
@@ -53,22 +146,9 @@ cd zotero_plugin
 # Then in Zotero: Tools → Add-ons → Install From File → select the .xpi
 ```
 
-After installing, `<leader>ze` on an item opens a JSON editor. Keymap in editor:
+After installing and restarting Zotero, open an item's edit buffer with
+`<leader>ze`.
 
-| Keys | Action |
-|------|--------|
-| `:ZoteroSave` / `<leader>zs` | Save changes |
-| `?` | List available fields for item type |
-| `<leader>zk` | Regenerate Better BibTeX citation key |
-| `q` | Close editor |
+## License
 
-## Configuration
-
-```lua
-require("zotero").setup({
-  db_path = "~/Zotero/zotero.sqlite",   -- path to your DB
-  keymap_prefix = "<leader>z",           -- prefix for global keymaps
-  max_items = 500,                       -- max items per list
-  columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
-})
-```
+GNU General Public License v3.0

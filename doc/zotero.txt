@@ -20,13 +20,17 @@ without leaving the editor. It provides a full-featured buffer-based UI
 inspired by the Zotero desktop application, with:
 
   - A collections tree (left pane) with expand/collapse and item counts
-  - An items list (right pane) with title, author, year, and type columns
+  - An items list (right pane) with configurable columns and presets
   - A detail panel showing full metadata, abstract, tags, notes, and
     attachments
   - Search across your entire library
-  - Sort by title, year, type, or date added
+  - Sort by title, year, or date added
+  - Item marking system: toggle marks, filter to show only marked items
+  - Duplicate detection when importing PDFs
+  - Create and trash collections
   - Open attached PDFs from within Neovim
-  - Import PDFs directly into Zotero via the Connector API
+  - Import PDFs directly into Zotero via the Connector API, with
+    duplicate detection
   - Edit item metadata (requires companion Zotero plugin)
 
 zotero.nvim reads your Zotero SQLite database directly — no Better BibTeX
@@ -38,6 +42,9 @@ REQUIREMENTS                                            *zotero-requirements*
   - Neovim >= 0.9
   - sqlite3 CLI binary (install via your package manager, e.g.
     `sudo apt install sqlite3` or `brew install sqlite3`)
+  - Zotero Connector enabled: Settings → Advanced →
+    "Allow other applications on this computer to communicate with Zotero"
+    (Required for PDF import, add-by-identifier, and metadata editing)
   - A local Zotero database at one of the standard locations:
     ~/Zotero/zotero.sqlite
     ~/.zotero/zotero.sqlite
@@ -84,6 +91,9 @@ CONFIGURATION                                            *zotero-config*
         enabled = true,
         open_library = "<leader>zz",
       },
+
+      -- Fuzzy search backend: "fzf" or "telescope"
+      backend = "fzf",
 
       -- Command to open PDF attachments (default: xdg-open)
       pdf_viewer = "xdg-open",
@@ -139,13 +149,14 @@ The browser opens in a split layout:
 <
 
 Collections Pane~
-  Navigate the tree with |j|/|k|. Expand/collapse with |l|/|h|.
-  Press |<CR>| to select a collection and load its items.
+  Navigate the tree with |j|/|k|. Press |<CR>| to select a
+  collection (loads its items) or expand/collapse if it has children.
+  Jump between sections (My Library, Marked, Trash) with |]]|/|[[|.
 
 Items Pane~
   Scroll items with |j|/|k|. Press |<CR>| to see the full item
   detail. Search with |<leader>z/|, clear with |<leader>zc|.
-  Sort with |<leader>zs|/|<leader>zS|/|<leader>zt|/|<leader>zd|.
+  Sort with |<leader>zs| (title), |<leader>zS| (year), |<leader>zd| (date added).
 
 Detail Panel~
   Shows full metadata for the selected item, including abstract,
@@ -166,6 +177,7 @@ Global~
 
 Collections Pane~
   j / k           Navigate up/down
+  ]] / [[         Next / previous section
   <CR>            Select collection or Trash (loads items)
   <Tab>           Focus items pane
   <leader>zt      Toggle collections pane
@@ -193,6 +205,8 @@ Items Pane~
   <leader>zk      Regenerate BibTeX citation key
   <leader>zt      Toggle collections pane
   <Tab>           Focus collections pane
+  <leader>zM      Toggle mark on item
+  <leader>zL      Show only marked items
   ?               Show help
 
 Edit Buffer~
