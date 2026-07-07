@@ -182,7 +182,7 @@ function M.get_collections()
   return json_query(sql)
 end
 
-function M.get_items(collection_id, search_term, sort_by, sort_dir)
+function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override)
   local where = "i.itemTypeID NOT IN (" .. item_type_filter() .. ") AND " .. not_trashed()
   local params = {}
 
@@ -243,7 +243,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir)
 
   local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
 
-  local limit = require("zotero.config").get().max_items
+  local limit = limit_override or require("zotero.config").get().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -288,7 +288,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir)
   return json_query(sql)
 end
 
-function M.get_trash_items(sort_by, sort_dir)
+function M.get_trash_items(sort_by, sort_dir, limit_override)
   local order = "i.itemID"
   if sort_by == "title" then
     order = "t.title COLLATE NOCASE DESC"
@@ -304,7 +304,7 @@ function M.get_trash_items(sort_by, sort_dir)
     order = order:gsub(" DESC", "") .. " ASC"
   end
 
-  local limit = require("zotero.config").get().max_items
+  local limit = limit_override or require("zotero.config").get().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -475,8 +475,8 @@ function M.get_item_detail(item_id)
   }
 end
 
-function M.search_global(search_term, sort_by, sort_dir)
-  return M.get_items(nil, search_term, sort_by, sort_dir)
+function M.search_global(search_term, sort_by, sort_dir, limit_override)
+  return M.get_items(nil, search_term, sort_by, sort_dir, limit_override)
 end
 
 function M.get_item_type_name(item_type_id)

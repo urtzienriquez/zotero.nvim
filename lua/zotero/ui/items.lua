@@ -295,13 +295,14 @@ function M.restore_session()
 end
 
 function M.fetch_and_render(refresh_collections)
+  local limit = show_only_marked and 100000 or nil
   local items
   if is_trash_mode then
-    items = db.get_trash_items(sort_by, sort_dir)
+    items = db.get_trash_items(sort_by, sort_dir, limit)
   elseif current_collection_id then
-    items = db.get_items(current_collection_id, search_term, sort_by, sort_dir)
+    items = db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit)
   else
-    items = db.search_global(search_term, sort_by, sort_dir)
+    items = db.search_global(search_term, sort_by, sort_dir, limit)
   end
 
   items = load_authors_for_items(items)
@@ -506,7 +507,13 @@ local function toggle_columns()
 end
 
 local function toggle_item_mark()
-  local idx = line_to_idx(cursor_line)
+  local layout = require("zotero.ui.layout")
+  local win = layout.get_items_win()
+  if not win then
+    return
+  end
+  local cur = vim.api.nvim_win_get_cursor(win)
+  local idx = line_to_idx(cur[1])
   if idx < 1 or idx > #items_data then
     return
   end
@@ -520,7 +527,8 @@ local function toggle_item_mark()
     marked_items[item.itemID] = true
   end
 
-  local layout = require("zotero.ui.layout")
+  cursor_line = cur[1]
+
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -540,7 +548,7 @@ end
 local function toggle_show_marked()
   show_only_marked = not show_only_marked
   cursor_line = min_cursor_line()
-  apply_preset(_preset_index)
+  M.fetch_and_render()
 end
 
 local function start_search()
@@ -679,19 +687,19 @@ function M.set_keymaps()
   end
 
   vim.keymap.set("n", "j", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "k", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<Down>", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "<Up>", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: show detail" })

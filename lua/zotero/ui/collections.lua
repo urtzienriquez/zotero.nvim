@@ -267,19 +267,19 @@ function M.set_keymaps()
   end
 
   vim.keymap.set("n", "j", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "k", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<Down>", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "<Up>", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "]]", function()
