@@ -28,6 +28,7 @@ function M.setup()
   hl(0, "ZoteroItemYear", { fg = "#88aaff" })
   hl(0, "ZoteroItemType", { fg = "#66dd88" })
   hl(0, "ZoteroItemKey", { fg = "#ffcc66" })
+  hl(0, "ZoteroItemMarker", { fg = "#ffaa00", bold = true })
   hl(0, "ZoteroItemMarked", { bg = "#3a3a00" })
 
   hl(0, "ZoteroStatusLine", { bg = "#333333", fg = "#cccccc" })

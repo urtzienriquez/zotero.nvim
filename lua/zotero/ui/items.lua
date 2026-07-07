@@ -168,6 +168,12 @@ local function apply_highlights_compact(buf)
       end
     end
   end
+
+  for i, line in ipairs(lines) do
+    if line:match("^%* ") then
+      vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemMarker", i - 1, 0, 1)
+    end
+  end
 end
 
 local function format_items_table(items)
@@ -362,10 +368,20 @@ function M.apply_highlights(buf)
               local start_c = (j == 1) and 0 or (pipes[j - 1] + 4)
               local end_c = (j == #active_cols) and -1 or (pipes[j] - 1)
               vim.api.nvim_buf_add_highlight(buf, ns, hl_group, i - 1, start_c, end_c)
-            end
-          end
-        end
       end
+    end
+  end
+
+  -- highlight mark * for marked items
+  for i, line in ipairs(lines) do
+    if i > 2 then
+      local star_pos = line:find("%*%d")
+      if star_pos then
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemMarker", i - 1, star_pos - 1, star_pos)
+      end
+    end
+  end
+end
     end
   end
 end
