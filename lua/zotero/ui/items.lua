@@ -713,6 +713,17 @@ function M.set_keymaps()
     move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
+  vim.keymap.set("n", "gg", function()
+    cursor_line = min_cursor_line()
+    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  end, { buffer = buf, silent = true, desc = "zotero: go to top" })
+
+  vim.keymap.set("n", "G", function()
+    local buf = vim.api.nvim_win_get_buf(layout.get_items_win())
+    cursor_line = vim.api.nvim_buf_line_count(buf)
+    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  end, { buffer = buf, silent = true, desc = "zotero: go to bottom" })
+
   vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: show detail" })
   vim.keymap.set("n", "<leader>zo", open_attachment, { buffer = buf, silent = true, desc = "zotero: open attachment" })
 
