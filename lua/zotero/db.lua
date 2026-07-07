@@ -1,22 +1,35 @@
 local M = {}
 
 local types = require("zotero.types")
+local config_mod = require("zotero.config")
 
-local function db_path()
-  return require("zotero.config").get().db_path
+local _cfg = nil
+local function cfg()
+  if not _cfg then
+    _cfg = config_mod.get()
+  end
+  return _cfg
 end
 
 local db_copy = nil
+local db_last_mtime = nil
 
 local function get_db()
-  local path = db_path()
+  local path = cfg().db_path
   if not path then
     return nil
   end
   if not db_copy then
     db_copy = vim.fn.tempname()
   end
-  vim.fn.system({ "cp", path, db_copy })
+  local mtime = vim.fn.getftime(path)
+  if mtime == -1 then
+    return nil
+  end
+  if mtime ~= db_last_mtime then
+    vim.fn.system({ "cp", path, db_copy })
+    db_last_mtime = mtime
+  end
   return db_copy
 end
 
@@ -243,7 +256,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
 
   local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
 
-  local limit = limit_override or require("zotero.config").get().max_items
+  local limit = limit_override or cfg().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -304,7 +317,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
     order = order:gsub(" DESC", "") .. " ASC"
   end
 
-  local limit = limit_override or require("zotero.config").get().max_items
+  local limit = limit_override or cfg().max_items
 
   local sql = [[
     SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -561,6 +574,84 @@ function M.get_all_item_types()
     ORDER BY typeName COLLATE NOCASE
   ]]
   return json_query(sql)
+end
+
+function M.get_items_by_field_value(field_name, value)
+  local field_id = FIELD_IDS[field_name]
+  if not field_id then
+    return {}
+  end
+  local sql = [[
+    SELECT i.itemID, i.key, t.value AS title
+    FROM itemData id
+    JOIN itemDataValues dv ON id.valueID = dv.valueID
+    JOIN items i ON id.itemID = i.itemID
+    LEFT JOIN (
+      SELECT id2.itemID, dv2.value AS value
+      FROM itemData id2
+      JOIN itemDataValues dv2 ON id2.valueID = dv2.valueID
+      WHERE id2.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE id.fieldID = ]] .. field_id .. [[
+      AND dv.value = ']] .. types.escape_sql(value) .. [['
+      AND i.itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+      AND ]] .. not_trashed() .. [[
+  ]]
+  return json_query(sql)
+end
+
+function M.get_item_by_key(key)
+  local sql = [[
+    SELECT i.itemID, i.key, t.value AS title
+    FROM items i
+    LEFT JOIN (
+      SELECT id.itemID, dv.value AS value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE i.key = ']] .. types.escape_sql(key) .. [['
+  ]]
+  local results = json_query(sql)
+  return results[1]
+end
+
+function M.get_item_field_value(key, field_name)
+  local field_id = FIELD_IDS[field_name]
+  if not field_id then
+    return nil
+  end
+  local sql = [[
+    SELECT dv.value
+    FROM itemData id
+    JOIN itemDataValues dv ON id.valueID = dv.valueID
+    JOIN items i ON id.itemID = i.itemID
+    WHERE i.key = ']] .. types.escape_sql(key) .. [['
+      AND id.fieldID = ]] .. field_id .. [[
+  ]]
+  local results = json_query(sql)
+  if results and #results > 0 then
+    return results[1].value
+  end
+  return nil
+end
+
+function M.get_parent_item_by_attachment_key(attachment_key)
+  local sql = [[
+    SELECT p.itemID, p.key, t.value AS title
+    FROM items a
+    JOIN itemAttachments att ON a.itemID = att.itemID
+    JOIN items p ON att.parentItemID = p.itemID
+    LEFT JOIN (
+      SELECT id.itemID, dv.value AS value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON p.itemID = t.itemID
+    WHERE a.key = ']] .. types.escape_sql(attachment_key) .. [['
+  ]]
+  local results = json_query(sql)
+  return results[1]
 end
 
 return M

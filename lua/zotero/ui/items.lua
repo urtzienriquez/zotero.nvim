@@ -2,6 +2,8 @@ local M = {}
 
 local db = require("zotero.db")
 local types = require("zotero.types")
+local layout = require("zotero.ui.layout")
+local cfg_mod = require("zotero.config")
 
 local items_data = {}
 local cursor_line = 1
@@ -70,7 +72,7 @@ local function get_active_columns()
   if preset.columns then
     return preset.columns
   end
-  local cfg = require("zotero.config").get()
+  local cfg = cfg_mod.get()
   return cfg.columns or { "#", "title", "authors", "year", "type" }
 end
 
@@ -308,7 +310,6 @@ function M.fetch_and_render(refresh_collections)
   items = load_authors_for_items(items)
   items_data = items
 
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -392,7 +393,6 @@ end
 end
 
 function M.update_status()
-  local layout = require("zotero.ui.layout")
   local win = layout.get_items_win()
   if not win then
     return
@@ -412,7 +412,6 @@ function M.update_status()
 end
 
 local function on_enter()
-  local layout = require("zotero.ui.layout")
   local win = layout.get_items_win()
   if not win then
     return
@@ -430,7 +429,6 @@ local function on_enter()
 end
 
 local function move_cursor(delta)
-  local layout = require("zotero.ui.layout")
   local win = layout.get_items_win()
   if not win then
     return
@@ -465,7 +463,6 @@ local function apply_preset(index)
   _compact_hl_regions = {}
   cursor_line = min_cursor_line()
 
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -507,7 +504,6 @@ local function toggle_columns()
 end
 
 local function toggle_item_mark()
-  local layout = require("zotero.ui.layout")
   local win = layout.get_items_win()
   if not win then
     return
@@ -569,7 +565,6 @@ function M.show_results(results)
   cursor_line = min_cursor_line()
   current_collection_id = nil
 
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -680,7 +675,6 @@ function M.open_file(attachment)
 end
 
 function M.set_keymaps()
-  local layout = require("zotero.ui.layout")
   local buf = layout.get_items_buf()
   if not buf then
     return
@@ -729,7 +723,7 @@ function M.set_keymaps()
       vim.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
       return
     end
-    local viewer = require("zotero.config").get().pdf_viewer or "xdg-open"
+  local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
     vim.fn.jobstart({ viewer, link }, { detach = true })
   end, { buffer = buf, silent = true, desc = "zotero: open URL/DOI in browser" })
 
@@ -742,7 +736,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: sort by year" })
 
   vim.keymap.set("n", "<leader>zt", function()
-    require("zotero.ui.layout").toggle_collections()
+    layout.toggle_collections()
   end, { buffer = buf, silent = true, desc = "zotero: toggle collections pane" })
 
   vim.keymap.set("n", "<leader>zd", function()
@@ -953,7 +947,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: add item by identifier" })
 
   vim.keymap.set("n", "<leader>ze", function()
-    local win = require("zotero.ui.layout").get_items_win()
+    local win = layout.get_items_win()
     local cursor = vim.api.nvim_win_get_cursor(win)
     local idx = line_to_idx(cursor[1])
     if idx >= 1 and idx <= #items_data then
@@ -1015,43 +1009,6 @@ function M.show_help()
     "  ?             This help",
   }
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
-end
-
-function M.get_marked_items()
-  local result = {}
-  for _, item in ipairs(items_data) do
-    if marked_items[item.itemID] then
-      result[#result + 1] = item
-    end
-  end
-  return result
-end
-
-function M.get_marked_keys()
-  local result = {}
-  local db = require("zotero.db")
-  for _, item in ipairs(items_data) do
-    if marked_items[item.itemID] then
-      local key = db.get_item_key(item.itemID)
-      if key and key ~= "" then
-        result[#result + 1] = key
-      end
-    end
-  end
-  return result
-end
-
-function M.clear_marks()
-  marked_items = {}
-  local layout = require("zotero.ui.layout")
-  local buf = layout.get_items_buf()
-  if buf and vim.api.nvim_buf_is_valid(buf) then
-    vim.bo[buf].modifiable = true
-    local lines = format_items_table(items_data)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    M.apply_highlights(buf)
-  end
 end
 
 function M.get_marked_count()
