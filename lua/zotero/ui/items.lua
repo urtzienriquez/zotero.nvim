@@ -1017,43 +1017,6 @@ function M.show_help()
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end
 
-function M.get_marked_items()
-  local result = {}
-  for _, item in ipairs(items_data) do
-    if marked_items[item.itemID] then
-      result[#result + 1] = item
-    end
-  end
-  return result
-end
-
-function M.get_marked_keys()
-  local result = {}
-  local db = require("zotero.db")
-  for _, item in ipairs(items_data) do
-    if marked_items[item.itemID] then
-      local key = db.get_item_key(item.itemID)
-      if key and key ~= "" then
-        result[#result + 1] = key
-      end
-    end
-  end
-  return result
-end
-
-function M.clear_marks()
-  marked_items = {}
-  local layout = require("zotero.ui.layout")
-  local buf = layout.get_items_buf()
-  if buf and vim.api.nvim_buf_is_valid(buf) then
-    vim.bo[buf].modifiable = true
-    local lines = format_items_table(items_data)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    M.apply_highlights(buf)
-  end
-end
-
 function M.get_marked_count()
   local count = 0
   for _, _ in pairs(marked_items) do

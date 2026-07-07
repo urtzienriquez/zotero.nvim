@@ -141,8 +141,7 @@ function M.close()
   end
 
   if state.tabpage and vim.api.nvim_tabpage_is_valid(state.tabpage) then
-    local cur_tab = vim.api.nvim_tabpage_get_number(state.tabpage)
-    vim.api.nvim_set_current_tabpage(cur_tab)
+    vim.api.nvim_set_current_tabpage(state.tabpage)
   end
 
   local zotero_buffers = {}

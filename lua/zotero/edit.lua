@@ -323,8 +323,17 @@ function M.save_edit(bufnr)
       end
     end
   end
-  if not has_changes and original and #updates.tags ~= #original.tags then
-    has_changes = true
+  if not has_changes and original then
+    if #updates.tags ~= #original.tags then
+      has_changes = true
+    else
+      for i, t in ipairs(updates.tags) do
+        if t ~= original.tags[i] then
+          has_changes = true
+          break
+        end
+      end
+    end
   end
 
   if not has_changes then

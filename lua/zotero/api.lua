@@ -148,38 +148,41 @@ local function try_save_items(path, filename, title, collection_key)
     },
   }
 
-  local res = vim.fn.system({
-    "curl", "-s", "-X", "POST",
-    BASE .. "/connector/saveItems",
-    "-H", "Content-Type: application/json",
-    "-d", vim.fn.json_encode(payload),
-  })
+  local function do_save()
+    local res = vim.fn.system({
+      "curl", "-s", "-X", "POST",
+      BASE .. "/connector/saveItems",
+      "-H", "Content-Type: application/json",
+      "-d", vim.fn.json_encode(payload),
+    })
+    return res
+  end
+
+  local res = do_save()
 
   if res and res ~= "" then
     local ok, parsed = pcall(vim.fn.json_decode, res)
-    if ok and type(parsed) == "table" and parsed.error == "SESSION_EXISTS" then
-      session_id = rand_str(32)
-      payload.sessionID = session_id
-      res = vim.fn.system({
-        "curl", "-s", "-X", "POST",
-        BASE .. "/connector/saveItems",
-        "-H", "Content-Type: application/json",
-        "-d", vim.fn.json_encode(payload),
-      })
-      if res and res ~= "" then
-        local ok2, parsed2 = pcall(vim.fn.json_decode, res)
-        if ok2 and type(parsed2) == "table" and parsed2.error then
-          vim.notify("zotero: import failed: " .. res, vim.log.levels.ERROR)
-          return
+    if ok and type(parsed) == "table" then
+      if parsed.error == "SESSION_EXISTS" then
+        session_id = rand_str(32)
+        payload.sessionID = session_id
+        res = do_save()
+        if res and res ~= "" then
+          local ok2, parsed2 = pcall(vim.fn.json_decode, res)
+          if ok2 and type(parsed2) == "table" and parsed2.error then
+            vim.notify("zotero: import failed: " .. res, vim.log.levels.ERROR)
+            return false
+          end
         end
+      elseif parsed.error then
+        vim.notify("zotero: import failed: " .. res, vim.log.levels.ERROR)
+        return false
       end
-    elseif ok and type(parsed) == "table" and parsed.error then
-      vim.notify("zotero: import failed: " .. res, vim.log.levels.ERROR)
-      return
     end
   end
 
   vim.notify("zotero: imported '" .. filename .. "' (document only; add file via Zotero UI to get metadata)", vim.log.levels.INFO)
+  return true
 end
 
 function M.add_by_identifier(identifier, collection_key)
@@ -610,8 +613,7 @@ function M.import_pdf(path, collection_key)
   end
 
   -- fallback
-  try_save_items(path, filename, title, collection_key)
-  return true
+  return try_save_items(path, filename, title, collection_key)
 end
 
 return M
