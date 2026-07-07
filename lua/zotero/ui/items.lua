@@ -19,12 +19,34 @@ local function sql_str(val, default)
   return val
 end
 
+local _preset_index = 0
+local _compact_hl_regions = {}
+
+local PRESETS = {
+  { name = "configured" },
+  { name = "compact", columns = { "__compact__" } },
+  { name = "normal", columns = { "#", "title", "authors", "year", "type" } },
+  { name = "full", columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded", "type" } },
+}
+
+local function is_compact_mode()
+  return _preset_index == 1
+end
+
+local function line_to_idx(line)
+  return is_compact_mode() and line or (line - 2)
+end
+
+local function min_cursor_line()
+  return is_compact_mode() and 1 or 2
+end
+
 local COLUMN_DEFS = {
   ["#"] = { header = " #", width = 3, align = "right", extract = function(_, idx) return tostring(idx) end },
   key = { header = "Key", width = 12, extract = function(item) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), 12) end },
-  title = { header = "Title", width = 46, extract = function(item) return types.truncate(sql_str(item.title, "(no title)"), 46) end },
+  title = { header = "Title", width = 60, extract = function(item) return types.truncate(sql_str(item.title, "(no title)"), 60) end },
   authors = { header = "Authors", width = 23, extract = function(item) return types.truncate(sql_str(item._authors), 23) end },
-  year = { header = "Year", width = 8, extract = function(item) return (item._is_collection and item._is_collection ~= 0) and "" or ((item.year and item.year ~= vim.NIL) and tostring(item.year) or (type(item.date_str) == "string" and types.extract_year(item.date_str) or "")) end },
+  year = { header = "Year", width = 4, extract = function(item) return (item._is_collection and item._is_collection ~= 0) and "" or ((item.year and item.year ~= vim.NIL) and tostring(item.year) or (type(item.date_str) == "string" and types.extract_year(item.date_str) or "")) end },
   journal = { header = "Journal", width = 30, extract = function(item) return types.truncate(sql_str(item.publicationTitle), 30) end },
   dateAdded = { header = "Added", width = 12, extract = function(item) return types.truncate(sql_str(item.dateAdded), 12) end },
   type = { header = "Type", width = 14, extract = function(item) return types.truncate(sql_str(item.typeName), 14) end },
@@ -42,77 +64,139 @@ local COLUMN_HL = {
 }
 
 local function get_active_columns()
+  local preset = PRESETS[_preset_index + 1]
+  if preset.columns then
+    return preset.columns
+  end
   local cfg = require("zotero.config").get()
   return cfg.columns or { "#", "title", "authors", "year", "type" }
 end
 
-local function build_fmt(active_cols)
-  local parts = {}
-  for i, key in ipairs(active_cols) do
-    local def = COLUMN_DEFS[key]
-    if not def then
-      def = { header = key, width = 15, extract = function() return "" end }
+local function format_items_compact(items)
+  local lines = {}
+  _compact_hl_regions = {}
+
+  for idx, item in ipairs(items) do
+    local author = item._authors_compact or ""
+    local year = ""
+    if item.year and item.year ~= vim.NIL then
+      year = tostring(item.year)
+    elseif type(item.date_str) == "string" then
+      year = types.extract_year(item.date_str)
     end
-    local spec = def.align == "right" and "%" .. tostring(def.width) .. "s" or "%-" .. tostring(def.width) .. "s"
-    if i == 1 then
-      table.insert(parts, spec)
+    year = year or ""
+    local title = item.title or "(no title)"
+
+    local line
+    if author ~= "" and year ~= "" then
+      line = author .. " " .. year .. "  " .. title
+    elseif author ~= "" then
+      line = author .. "  " .. title
+    elseif year ~= "" then
+      line = year .. "  " .. title
     else
-      table.insert(parts, " │ " .. spec)
+      line = title
+    end
+    table.insert(lines, line)
+
+    local regions = {}
+    local pos = 0
+    if author ~= "" then
+      regions[#regions + 1] = { pos, pos + #author, "ZoteroItemAuthor" }
+      pos = pos + #author + 1
+    end
+    if year ~= "" then
+      local year_end = pos + #year
+      regions[#regions + 1] = { pos, year_end, "ZoteroItemYear" }
+      pos = year_end + 2
+    elseif author ~= "" then
+      pos = pos + 1
+    end
+    regions[#regions + 1] = { pos, pos + #title, "ZoteroItemTitle" }
+
+    _compact_hl_regions[#lines] = regions
+  end
+
+  if #items == 0 then
+    if search_term ~= "" then
+      table.insert(lines, "  (no items match search)")
+    elseif is_trash_mode then
+      table.insert(lines, "  (trash is empty)")
+    elseif current_collection_id then
+      table.insert(lines, "  (no items in this collection)")
+    else
+      table.insert(lines, "  (no items in library)")
     end
   end
-  return table.concat(parts)
+
+  return lines
 end
 
-local function total_width(active_cols)
-  local w = 0
-  for i, key in ipairs(active_cols) do
-    local def = COLUMN_DEFS[key]
-    if not def then
-      def = { width = 15 }
-    end
-    w = w + def.width
-    if i > 1 then
-      w = w + 3
+local function apply_highlights_compact(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  local ns = vim.api.nvim_create_namespace("zotero-items-hl")
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+  for i, line in ipairs(lines) do
+    local lnum = i - 1
+
+    if line:match("^%s*%(") then
+      vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemCount", lnum, 0, -1)
+    else
+      local regions = _compact_hl_regions[i]
+      if regions then
+        for _, region in ipairs(regions) do
+          local end_c = region[2] >= 0 and region[2] or -1
+          vim.api.nvim_buf_add_highlight(buf, ns, region[3], lnum, region[1], end_c)
+        end
+      end
     end
   end
-  return w
 end
 
 local function format_items_table(items)
+  if is_compact_mode() then
+    return format_items_compact(items)
+  end
   local active_cols = get_active_columns()
-  local fmt = build_fmt(active_cols)
-  local tw = total_width(active_cols)
 
   local lines = {}
-  local header_args = {}
-  local sep_parts = {}
+
+  local header_parts = {}
   for i, key in ipairs(active_cols) do
     local def = COLUMN_DEFS[key]
-    table.insert(header_args, def and def.header or key)
-    if i > 1 then
-      table.insert(sep_parts, "─")
+    if not def then
+      def = { header = key, width = 15, align = "left" }
     end
-    table.insert(sep_parts, string.rep("─", def and def.width or 15))
+    local hdr = def.header
+    local w = def.width
+    local padded = def.align == "right" and types.pad_left(hdr, w) or types.pad_right(hdr, w)
+    table.insert(header_parts, padded)
   end
-
-  local header_line = string.format(fmt, unpack(header_args))
-  -- build separator by counting display width
-  local sep = string.rep("─", vim.fn.strdisplaywidth(header_line))
-
+  local header_line = table.concat(header_parts, " │ ")
   table.insert(lines, header_line)
+
+  local sep = string.rep("─", vim.fn.strdisplaywidth(header_line))
   table.insert(lines, sep)
 
   for idx, item in ipairs(items) do
-    local args = {}
+    local parts = {}
     for _, key in ipairs(active_cols) do
       local def = COLUMN_DEFS[key]
-      if def and def.extract then
-        table.insert(args, def.extract(item, idx))
+      if not def then
+        table.insert(parts, string.rep(" ", 15))
       else
-        table.insert(args, "")
+        local val = def.extract(item, idx)
+        local padded = def.align == "right" and types.pad_left(val, def.width) or types.pad_right(val, def.width)
+        table.insert(parts, padded)
       end
     end
-    table.insert(lines, string.format(fmt, unpack(args)))
+    table.insert(lines, table.concat(parts, " │ "))
   end
 
   if #items == 0 then
@@ -142,7 +226,9 @@ local function load_authors_for_items(items)
     table.insert(creators_by_item[c.itemID], c)
   end
   for _, item in ipairs(items) do
-    item._authors = types.format_creators(creators_by_item[item.itemID] or {})
+    local creators = creators_by_item[item.itemID] or {}
+    item._authors = types.format_creators(creators)
+    item._authors_compact = types.format_creators_compact(creators)
   end
   return items
 end
@@ -152,7 +238,7 @@ function M.load_items(collection_id)
   is_trash_mode = false
   search_term = ""
   is_searching = false
-  cursor_line = 2
+  cursor_line = min_cursor_line()
   M.fetch_and_render()
 end
 
@@ -161,7 +247,7 @@ function M.load_trash()
   is_trash_mode = true
   search_term = ""
   is_searching = false
-  cursor_line = 2
+  cursor_line = min_cursor_line()
   M.fetch_and_render()
 end
 
@@ -192,8 +278,9 @@ function M.fetch_and_render(refresh_collections)
   if cursor_line > #lines then
     cursor_line = #lines
   end
-  if cursor_line < 2 then
-    cursor_line = #lines >= 2 and 2 or 1
+  local mcl = min_cursor_line()
+  if cursor_line < mcl then
+    cursor_line = #lines >= mcl and mcl or 1
   end
 
   M.apply_highlights(buf)
@@ -210,6 +297,10 @@ end
 function M.apply_highlights(buf)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
+  end
+
+  if is_compact_mode() then
+    return apply_highlights_compact(buf)
   end
 
   local ns = vim.api.nvim_create_namespace("zotero-items-hl")
@@ -235,8 +326,8 @@ function M.apply_highlights(buf)
           for j, col_key in ipairs(active_cols) do
             local hl_group = COLUMN_HL[col_key]
             if hl_group then
-              local start_c = (j == 1) and 0 or (pipes[j - 1] + 2)
-              local end_c = (j == #active_cols) and -1 or (pipes[j] - 2)
+              local start_c = (j == 1) and 0 or (pipes[j - 1] + 4)
+              local end_c = (j == #active_cols) and -1 or (pipes[j] - 1)
               vim.api.nvim_buf_add_highlight(buf, ns, hl_group, i - 1, start_c, end_c)
             end
           end
@@ -257,6 +348,9 @@ function M.update_status()
     info = info .. "  search: " .. search_term
   end
   info = info .. "  sort: " .. sort_by .. " (" .. sort_dir .. ")  " .. tostring(#items_data) .. " items"
+  if _preset_index > 0 then
+    info = info .. "  view: " .. PRESETS[_preset_index + 1].name
+  end
   vim.wo[win].statusline = info
 end
 
@@ -268,7 +362,7 @@ local function on_enter()
   end
   local cursor = vim.api.nvim_win_get_cursor(win)
   local line = cursor[1]
-  local idx = line - 2
+  local idx = line_to_idx(line)
   if idx < 1 or idx > #items_data then
     return
   end
@@ -288,8 +382,9 @@ local function move_cursor(delta)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local cur = vim.api.nvim_win_get_cursor(win)
   local new_line = cur[1] + delta
-  if new_line < 2 then
-    new_line = 2
+  local mcl = min_cursor_line()
+  if new_line < mcl then
+    new_line = mcl
   end
   if new_line > #lines then
     new_line = #lines
@@ -308,12 +403,58 @@ local function toggle_sort(field)
   M.fetch_and_render()
 end
 
+local function apply_preset(index)
+  _preset_index = index
+  _compact_hl_regions = {}
+  cursor_line = min_cursor_line()
+
+  local layout = require("zotero.ui.layout")
+  local buf = layout.get_items_buf()
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  vim.bo[buf].modifiable = true
+  local lines = format_items_table(items_data)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  local mcl = min_cursor_line()
+  if cursor_line > #lines then
+    cursor_line = #lines
+  end
+  if cursor_line < mcl then
+    cursor_line = #lines >= mcl and mcl or 1
+  end
+
+  M.apply_highlights(buf)
+  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  M.update_status()
+end
+
+local function toggle_columns()
+  local choices = {}
+  for i, p in ipairs(PRESETS) do
+    local label = p.name
+    if i - 1 == _preset_index then
+      label = label .. " (current)"
+    end
+    choices[#choices + 1] = label
+  end
+
+  vim.ui.select(choices, { prompt = "zotero view: " }, function(_, idx)
+    if idx and idx - 1 ~= _preset_index then
+      apply_preset(idx - 1)
+    end
+  end)
+end
+
 local function start_search()
   vim.ui.input({ prompt = "zotero search: " }, function(input)
     if input then
       search_term = input
       is_searching = true
-      cursor_line = 2
+      cursor_line = min_cursor_line()
       M.fetch_and_render()
     end
   end)
@@ -323,7 +464,7 @@ function M.show_results(results)
   items_data = results or {}
   search_term = ""
   is_searching = false
-  cursor_line = 2
+  cursor_line = min_cursor_line()
   current_collection_id = nil
 
   local layout = require("zotero.ui.layout")
@@ -342,8 +483,9 @@ function M.show_results(results)
   if cursor_line > #lines then
     cursor_line = #lines
   end
-  if cursor_line < 2 then
-    cursor_line = #lines >= 2 and 2 or 1
+  local mcl = min_cursor_line()
+  if cursor_line < mcl then
+    cursor_line = #lines >= mcl and mcl or 1
   end
 
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
@@ -353,12 +495,12 @@ end
 local function clear_search()
   search_term = ""
   is_searching = false
-  cursor_line = 2
+  cursor_line = min_cursor_line()
   M.fetch_and_render()
 end
 
 local function open_attachment()
-  local idx = cursor_line - 2
+  local idx = line_to_idx(cursor_line)
   if idx < 1 or idx > #items_data then
     return
   end
@@ -462,7 +604,7 @@ function M.set_keymaps()
   vim.keymap.set("n", "<leader>zo", open_attachment, { buffer = buf, silent = true, desc = "zotero: open attachment" })
 
   vim.keymap.set("n", "<leader>zb", function()
-    local idx = cursor_line - 2
+    local idx = line_to_idx(cursor_line)
     if idx < 1 or idx > #items_data then
       return
     end
@@ -516,6 +658,8 @@ function M.set_keymaps()
     M.fetch_and_render(true)
   end, { buffer = buf, silent = true, desc = "zotero: refresh" })
 
+  vim.keymap.set("n", "<leader>zv", toggle_columns, { buffer = buf, silent = true, desc = "zotero: toggle column view" })
+
   vim.keymap.set("n", "<leader>zi", function()
     vim.ui.input({ prompt = "Import PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
@@ -531,7 +675,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: import PDF" })
 
   vim.keymap.set("n", "<leader>za", function()
-    local idx = cursor_line - 2
+    local idx = line_to_idx(cursor_line)
     if idx < 1 or idx > #items_data then
       return
     end
@@ -554,12 +698,11 @@ function M.set_keymaps()
     end)
   end, { buffer = buf, silent = true, desc = "zotero: add attachment to item" })
 
-  local function delete_items_in_range(start_line, end_line)
-    -- Collect unique items in the range (map by cursor index to avoid duplicates)
+    local function delete_items_in_range(start_line, end_line)
     local seen = {}
     local to_delete = {}
     for line = start_line, end_line do
-      local idx = line - 2
+      local idx = line_to_idx(line)
       if idx >= 1 and idx <= #items_data and not seen[idx] then
         seen[idx] = true
         local item = items_data[idx]
@@ -652,7 +795,7 @@ function M.set_keymaps()
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
   vim.keymap.set("n", "<leader>zm", function()
-    local idx = cursor_line - 2
+    local idx = line_to_idx(cursor_line)
     if idx < 1 or idx > #items_data then
       return
     end
@@ -706,7 +849,7 @@ function M.set_keymaps()
   vim.keymap.set("n", "<leader>ze", function()
     local win = require("zotero.ui.layout").get_items_win()
     local cursor = vim.api.nvim_win_get_cursor(win)
-    local idx = cursor[1] - 2
+    local idx = line_to_idx(cursor[1])
     if idx >= 1 and idx <= #items_data then
       local item = items_data[idx]
       require("zotero.edit").open_edit(item.itemID)
@@ -747,6 +890,7 @@ function M.show_help()
     "  <leader>z/    Search",
     "  <leader>zc    Clear search",
     "  <leader>zr    Refresh",
+    "  <leader>zv    Toggle view (compact/normal/full)",
     "  <leader>zt    Toggle collections pane",
     "  <leader>zi    Import PDF",
     "  <leader>za    Add attachment to item",
