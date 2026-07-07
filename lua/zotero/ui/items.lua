@@ -11,6 +11,8 @@ local sort_dir = "desc"
 local search_term = ""
 local is_searching = false
 local is_trash_mode = false
+local marked_items = {}
+local show_only_marked = false
 
 local function sql_str(val, default)
   if type(val) ~= "string" then
@@ -42,7 +44,7 @@ local function min_cursor_line()
 end
 
 local COLUMN_DEFS = {
-  ["#"] = { header = " #", width = 3, align = "right", extract = function(_, idx) return tostring(idx) end },
+  ["#"] = { header = "  #", width = 4, align = "right", extract = function(item, idx) return (marked_items[item.itemID] and "*" or " ") .. tostring(idx) end },
   key = { header = "Key", width = 12, extract = function(item) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), 12) end },
   title = { header = "Title", width = 60, extract = function(item) return types.truncate(sql_str(item.title, "(no title)"), 60) end },
   authors = { header = "Authors", width = 23, extract = function(item) return types.truncate(sql_str(item._authors), 23) end },
@@ -97,7 +99,6 @@ local function format_items_compact(items)
     else
       line = title
     end
-    table.insert(lines, line)
 
     local regions = {}
     local pos = 0
@@ -113,6 +114,16 @@ local function format_items_compact(items)
       pos = pos + 1
     end
     regions[#regions + 1] = { pos, pos + #title, "ZoteroItemTitle" }
+
+    if marked_items[item.itemID] then
+      line = "* " .. line
+      for _, r in ipairs(regions) do
+        r[1] = r[1] + 2
+        r[2] = r[2] + 2
+      end
+    end
+
+    table.insert(lines, line)
 
     _compact_hl_regions[#lines] = regions
   end
@@ -160,6 +171,16 @@ local function apply_highlights_compact(buf)
 end
 
 local function format_items_table(items)
+  if show_only_marked then
+    local filtered = {}
+    for _, item in ipairs(items) do
+      if marked_items[item.itemID] then
+        filtered[#filtered + 1] = item
+      end
+    end
+    items = filtered
+  end
+
   if is_compact_mode() then
     return format_items_compact(items)
   end
@@ -238,6 +259,7 @@ function M.load_items(collection_id)
   is_trash_mode = false
   search_term = ""
   is_searching = false
+  show_only_marked = false
   cursor_line = min_cursor_line()
   M.fetch_and_render()
 end
@@ -247,6 +269,17 @@ function M.load_trash()
   is_trash_mode = true
   search_term = ""
   is_searching = false
+  show_only_marked = false
+  cursor_line = min_cursor_line()
+  M.fetch_and_render()
+end
+
+function M.load_marked()
+  current_collection_id = nil
+  is_trash_mode = false
+  search_term = ""
+  is_searching = false
+  show_only_marked = true
   cursor_line = min_cursor_line()
   M.fetch_and_render()
 end
@@ -351,6 +384,9 @@ function M.update_status()
   if _preset_index > 0 then
     info = info .. "  view: " .. PRESETS[_preset_index + 1].name
   end
+  if show_only_marked then
+    info = info .. "  [marked only]"
+  end
   vim.wo[win].statusline = info
 end
 
@@ -447,6 +483,44 @@ local function toggle_columns()
       apply_preset(idx - 1)
     end
   end)
+end
+
+local function toggle_item_mark()
+  local idx = line_to_idx(cursor_line)
+  if idx < 1 or idx > #items_data then
+    return
+  end
+  local item = items_data[idx]
+  if not item or not item.itemID then
+    return
+  end
+  if marked_items[item.itemID] then
+    marked_items[item.itemID] = nil
+  else
+    marked_items[item.itemID] = true
+  end
+
+  local layout = require("zotero.ui.layout")
+  local buf = layout.get_items_buf()
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  vim.bo[buf].modifiable = true
+  local lines = format_items_table(items_data)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  M.apply_highlights(buf)
+  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+
+  require("zotero.ui.collections").refresh_display()
+end
+
+local function toggle_show_marked()
+  show_only_marked = not show_only_marked
+  cursor_line = min_cursor_line()
+  apply_preset(_preset_index)
 end
 
 local function start_search()
@@ -834,6 +908,10 @@ function M.set_keymaps()
     end)
   end, { buffer = buf, silent = true, desc = "zotero: move item to collection" })
 
+  vim.keymap.set("n", "<leader>zM", toggle_item_mark, { buffer = buf, silent = true, desc = "zotero: toggle mark on item" })
+
+  vim.keymap.set("n", "<leader>zL", toggle_show_marked, { buffer = buf, silent = true, desc = "zotero: show only marked items" })
+
   vim.keymap.set("n", "<leader>zn", function()
     vim.ui.input({ prompt = "Add by identifier (DOI/ISBN/PMID/arXiv): " }, function(input)
       if input and input ~= "" then
@@ -872,6 +950,7 @@ function M.show_help()
     "",
     "Collections Pane:",
     "  j/k           Navigate",
+    "  ]] / [[       Next / prev section",
     "  <CR>          Select collection / Trash",
     "  <Tab>         Focus items pane",
     "  <leader>zt    Toggle collections pane",
@@ -896,6 +975,8 @@ function M.show_help()
     "  <leader>za    Add attachment to item",
     "  <leader>zm    Move item to collection",
     "  <leader>zn    Add item by identifier (DOI/ISBN/etc.)",
+    "  <leader>zM    Toggle mark on item",
+    "  <leader>zL    Show only marked items",
     "  <leader>zD    Delete item (trash / permanent in Trash)",
     "  <Tab>         Focus collections",
     "",
@@ -906,6 +987,51 @@ function M.show_help()
     "  ?             This help",
   }
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
+end
+
+function M.get_marked_items()
+  local result = {}
+  for _, item in ipairs(items_data) do
+    if marked_items[item.itemID] then
+      result[#result + 1] = item
+    end
+  end
+  return result
+end
+
+function M.get_marked_keys()
+  local result = {}
+  local db = require("zotero.db")
+  for _, item in ipairs(items_data) do
+    if marked_items[item.itemID] then
+      local key = db.get_item_key(item.itemID)
+      if key and key ~= "" then
+        result[#result + 1] = key
+      end
+    end
+  end
+  return result
+end
+
+function M.clear_marks()
+  marked_items = {}
+  local layout = require("zotero.ui.layout")
+  local buf = layout.get_items_buf()
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    vim.bo[buf].modifiable = true
+    local lines = format_items_table(items_data)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    M.apply_highlights(buf)
+  end
+end
+
+function M.get_marked_count()
+  local count = 0
+  for _, _ in pairs(marked_items) do
+    count = count + 1
+  end
+  return count
 end
 
 return M

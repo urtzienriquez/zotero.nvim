@@ -47,6 +47,18 @@ local function get_display_lines()
   end
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+
+  local marked_count = require("zotero.ui.items").get_marked_count()
+  table.insert(lines, {
+    line = "  Marked Items (" .. tostring(marked_count) .. ")",
+    collectionID = nil,
+    has_children = false,
+    depth = 0,
+    is_marked_items = true,
+  })
+
+  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+
   local count = db.get_trash_count()
   table.insert(lines, {
     line = "  Trash (" .. tostring(count) .. ")",
@@ -178,6 +190,12 @@ local function on_enter()
     return
   end
 
+  if entry.is_marked_items then
+    require("zotero.ui.items").load_marked()
+    layout.focus_items()
+    return
+  end
+
   if entry.is_separator then
     return
   end
@@ -221,6 +239,26 @@ local function move_cursor(delta)
   vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
 end
 
+local function jump_section(direction)
+  local display_lines = get_display_lines()
+  local target = cursor_line + direction
+  while target >= 1 and target <= #display_lines do
+    local line = display_lines[target]
+    if not line.is_separator and line.line ~= "" then
+      if line.is_all_items or line.is_marked_items or line.is_trash then
+        cursor_line = target
+        local layout = require("zotero.ui.layout")
+        local win = layout.get_collections_win()
+        if win then
+          vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
+        end
+        return
+      end
+    end
+    target = target + direction
+  end
+end
+
 function M.set_keymaps()
   local layout = require("zotero.ui.layout")
   local buf = layout.get_collections_buf()
@@ -243,6 +281,14 @@ function M.set_keymaps()
   vim.keymap.set("n", "<Up>", function()
     move_cursor(-1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
+
+  vim.keymap.set("n", "]]", function()
+    jump_section(1)
+  end, { buffer = buf, silent = true, desc = "zotero: next section" })
+
+  vim.keymap.set("n", "[[", function()
+    jump_section(-1)
+  end, { buffer = buf, silent = true, desc = "zotero: prev section" })
 
   vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: select collection" })
 
