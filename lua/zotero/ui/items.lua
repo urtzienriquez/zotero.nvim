@@ -295,13 +295,14 @@ function M.restore_session()
 end
 
 function M.fetch_and_render(refresh_collections)
+  local limit = show_only_marked and 100000 or nil
   local items
   if is_trash_mode then
-    items = db.get_trash_items(sort_by, sort_dir)
+    items = db.get_trash_items(sort_by, sort_dir, limit)
   elseif current_collection_id then
-    items = db.get_items(current_collection_id, search_term, sort_by, sort_dir)
+    items = db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit)
   else
-    items = db.search_global(search_term, sort_by, sort_dir)
+    items = db.search_global(search_term, sort_by, sort_dir, limit)
   end
 
   items = load_authors_for_items(items)
@@ -506,7 +507,13 @@ local function toggle_columns()
 end
 
 local function toggle_item_mark()
-  local idx = line_to_idx(cursor_line)
+  local layout = require("zotero.ui.layout")
+  local win = layout.get_items_win()
+  if not win then
+    return
+  end
+  local cur = vim.api.nvim_win_get_cursor(win)
+  local idx = line_to_idx(cur[1])
   if idx < 1 or idx > #items_data then
     return
   end
@@ -520,7 +527,8 @@ local function toggle_item_mark()
     marked_items[item.itemID] = true
   end
 
-  local layout = require("zotero.ui.layout")
+  cursor_line = cur[1]
+
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -540,7 +548,7 @@ end
 local function toggle_show_marked()
   show_only_marked = not show_only_marked
   cursor_line = min_cursor_line()
-  apply_preset(_preset_index)
+  M.fetch_and_render()
 end
 
 local function start_search()
@@ -679,19 +687,19 @@ function M.set_keymaps()
   end
 
   vim.keymap.set("n", "j", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "k", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<Down>", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "<Up>", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: show detail" })
@@ -758,7 +766,7 @@ function M.set_keymaps()
     vim.ui.input({ prompt = "Import PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
-        local ok = require("zotero.api").import_pdf(vim.trim(path), col_key)
+        local ok = require("zotero.api").import_pdf(vim.fn.expand(vim.trim(path)), col_key)
         if ok then
           vim.defer_fn(function()
             M.fetch_and_render(true)
@@ -784,7 +792,7 @@ function M.set_keymaps()
     end
     vim.ui.input({ prompt = "Add attachment (PDF path): ", completion = "file" }, function(path)
       if path and path ~= "" then
-        local ok = require("zotero.api").add_attachment(item_key, vim.trim(path))
+        local ok = require("zotero.api").add_attachment(item_key, vim.fn.expand(vim.trim(path)))
         if ok then
           M.fetch_and_render(true)
         end
@@ -879,13 +887,13 @@ function M.set_keymaps()
       if start_line > end_line then
         start_line, end_line = end_line, start_line
       end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
     else
       start_line = cursor_line
       end_line = cursor_line
     end
 
     delete_items_in_range(start_line, end_line)
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", true)
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
   vim.keymap.set("n", "<leader>zm", function()

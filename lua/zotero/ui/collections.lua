@@ -227,13 +227,14 @@ local function move_cursor(delta)
   if not win then
     return
   end
-  local display_lines = get_display_lines()
+  local buf = vim.api.nvim_win_get_buf(win)
+  local line_count = vim.api.nvim_buf_line_count(buf)
   local new_line = cursor_line + delta
   if new_line < 1 then
     new_line = 1
   end
-  if new_line > #display_lines then
-    new_line = #display_lines
+  if new_line > line_count then
+    new_line = line_count
   end
   cursor_line = new_line
   vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
@@ -267,19 +268,19 @@ function M.set_keymaps()
   end
 
   vim.keymap.set("n", "j", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "k", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "<Down>", function()
-    move_cursor(1)
+    move_cursor(vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move down" })
 
   vim.keymap.set("n", "<Up>", function()
-    move_cursor(-1)
+    move_cursor(-vim.v.count1)
   end, { buffer = buf, silent = true, desc = "zotero: move up" })
 
   vim.keymap.set("n", "]]", function()
