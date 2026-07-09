@@ -520,48 +520,6 @@ local function toggle_columns()
   end)
 end
 
-local function toggle_item_mark()
-  local win = layout.get_items_win()
-  if not win then
-    return
-  end
-  local cur = vim.api.nvim_win_get_cursor(win)
-  local item = get_item_at_visible_line(cur[1])
-  if not item or not item.itemID then
-    return
-  end
-  if marked_items[item.itemID] then
-    marked_items[item.itemID] = nil
-  else
-    marked_items[item.itemID] = true
-  end
-
-  cursor_line = cur[1]
-
-  local buf = layout.get_items_buf()
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then
-    return
-  end
-
-  vim.bo[buf].modifiable = true
-  local lines = format_items_table(items_data)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-
-  M.apply_highlights(buf)
-
-  if cursor_line > #lines then
-    cursor_line = #lines
-  end
-  local mcl = min_cursor_line()
-  if cursor_line < mcl then
-    cursor_line = #lines >= mcl and mcl or 1
-  end
-  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-
-  require("zotero.ui.collections").refresh_display()
-end
-
 local function toggle_show_marked()
   show_only_marked = not show_only_marked
   cursor_line = min_cursor_line()
@@ -689,6 +647,19 @@ function M.open_file(attachment)
 
   local viewer = require("zotero.config").get().pdf_viewer or "xdg-open"
   vim.fn.jobstart({ viewer, full_path }, { detach = true })
+end
+
+local function get_visual_lines()
+  local mode = vim.api.nvim_get_mode().mode
+  if mode:match("[vV\22]") then
+    local start_line = vim.fn.line("v")
+    local end_line = vim.fn.line(".")
+    if start_line > end_line then
+      start_line, end_line = end_line, start_line
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+    return start_line, end_line
+  end
 end
 
 function M.set_keymaps()
@@ -909,14 +880,27 @@ function M.set_keymaps()
     delete_items_in_range(start_line, end_line)
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
-  vim.keymap.set("n", "<leader>zm", function()
-    local item = get_item_at_visible_line(cursor_line)
-    if not item then
-      return
+  vim.keymap.set({ "n", "x" }, "<leader>zm", function()
+    local start_line, end_line = get_visual_lines()
+    if not start_line then
+      start_line = cursor_line
+      end_line = cursor_line
     end
-    local item_key = db.get_item_key(item.itemID)
-    if not item_key or item_key == "" then
-      vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+
+    local item_keys = {}
+    local titles = {}
+    for line = start_line, end_line do
+      local item = get_item_at_visible_line(line)
+      if item and item.itemID then
+        local key = db.get_item_key(item.itemID)
+        if key and key ~= "" then
+          item_keys[#item_keys + 1] = key
+          titles[#titles + 1] = item.title or "(no title)"
+        end
+      end
+    end
+
+    if #item_keys == 0 then
       return
     end
 
@@ -926,26 +910,81 @@ function M.set_keymaps()
       return
     end
 
-    local items = {}
+    local names = {}
     for _, col in ipairs(collections) do
       local indent = string.rep("  ", col.depth or 0)
-      table.insert(items, indent .. col.collectionName)
+      table.insert(names, indent .. col.collectionName)
     end
 
-    vim.ui.select(items, { prompt = "Move '" .. (item.title or "(no title)") .. "' to:" }, function(_, selected_idx)
+    local prompt = #item_keys == 1 and "Move '" .. titles[1] .. "' to:"
+      or "Move " .. #item_keys .. " items to:"
+
+    vim.ui.select(names, { prompt = prompt }, function(_, selected_idx)
       if selected_idx and collections[selected_idx] then
         local key = collections[selected_idx].key
-        local ok = require("zotero.api").add_to_collection(item_key, key)
-        if ok then
-          local name = collections[selected_idx].collectionName
-          vim.notify("zotero: added '" .. (item.title or "item") .. "' to '" .. name .. "'", vim.log.levels.INFO)
-          require("zotero.ui.collections").refresh_counts()
+        local count = 0
+        local api = require("zotero.api")
+        for _, item_key in ipairs(item_keys) do
+          if api.add_to_collection(item_key, key) then
+            count = count + 1
+          end
         end
+        vim.notify("zotero: added " .. count .. " item(s) to '" .. collections[selected_idx].collectionName .. "'", vim.log.levels.INFO)
+        require("zotero.ui.collections").refresh_counts()
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: move item to collection" })
+  end, { buffer = buf, silent = true, desc = "zotero: move item(s) to collection" })
 
-  vim.keymap.set("n", "<leader>zM", toggle_item_mark, { buffer = buf, silent = true, desc = "zotero: toggle mark on item" })
+  vim.keymap.set({ "n", "x" }, "<leader>zM", function()
+    local start_line, end_line = get_visual_lines()
+    if not start_line then
+      start_line = cursor_line
+      end_line = cursor_line
+    end
+
+    local items = {}
+    for line = start_line, end_line do
+      local item = get_item_at_visible_line(line)
+      if item and item.itemID then
+        items[#items + 1] = item
+      end
+    end
+    if #items == 0 then
+      return
+    end
+
+    for _, item in ipairs(items) do
+      if marked_items[item.itemID] then
+        marked_items[item.itemID] = nil
+      else
+        marked_items[item.itemID] = true
+      end
+    end
+
+    cursor_line = start_line
+
+    local items_buf = layout.get_items_buf()
+    if not items_buf or not vim.api.nvim_buf_is_valid(items_buf) then
+      return
+    end
+
+    vim.bo[items_buf].modifiable = true
+    local lines = format_items_table(items_data)
+    vim.api.nvim_buf_set_lines(items_buf, 0, -1, false, lines)
+    vim.bo[items_buf].modifiable = false
+
+    M.apply_highlights(items_buf)
+
+    if cursor_line > #lines then
+      cursor_line = #lines
+    end
+    local mcl = min_cursor_line()
+    if cursor_line < mcl then
+      cursor_line = #lines >= mcl and mcl or 1
+    end
+    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+    require("zotero.ui.collections").refresh_display()
+  end, { buffer = buf, silent = true, desc = "zotero: toggle mark on item(s)" })
 
   vim.keymap.set("n", "<leader>zL", toggle_show_marked, { buffer = buf, silent = true, desc = "zotero: show only marked items" })
 
