@@ -72,13 +72,22 @@ function M.set_keymaps()
     return
   end
 
+  local cfg = require("zotero.config").get()
+  local km = cfg.keymaps
+  if not km.enabled then
+    return
+  end
+
   local collections_buf = state.collections_buf
 
-  vim.keymap.set("n", "<Esc>", function()
-    if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
-      vim.api.nvim_set_current_win(state.items_win)
-    end
-  end, { buffer = collections_buf, silent = true, nowait = true, desc = "zotero: focus items" })
+  local lhs = km.collections_focus_items_esc
+  if lhs then
+    vim.keymap.set("n", lhs, function()
+      if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
+        vim.api.nvim_set_current_win(state.items_win)
+      end
+    end, { buffer = collections_buf, silent = true, nowait = true, desc = "zotero: focus items" })
+  end
 end
 
 function M.get_collections_buf()

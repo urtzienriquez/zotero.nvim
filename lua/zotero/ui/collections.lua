@@ -263,41 +263,55 @@ function M.set_keymaps()
     return
   end
 
-  vim.keymap.set("n", "j", function()
+  local cfg = require("zotero.config").get()
+  local km = cfg.keymaps
+  if not km.enabled then
+    return
+  end
+
+  local function map(mode, name, rhs, desc)
+    local lhs = km[name]
+    if not lhs then
+      return
+    end
+    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
+  end
+
+  map("n", "collections_move_down", function()
     move_cursor(vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move down" })
+  end, "zotero: move down")
 
-  vim.keymap.set("n", "k", function()
+  map("n", "collections_move_up", function()
     move_cursor(-vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move up" })
+  end, "zotero: move up")
 
-  vim.keymap.set("n", "<Down>", function()
+  map("n", "collections_move_down_alt", function()
     move_cursor(vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move down" })
+  end, "zotero: move down")
 
-  vim.keymap.set("n", "<Up>", function()
+  map("n", "collections_move_up_alt", function()
     move_cursor(-vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move up" })
+  end, "zotero: move up")
 
-  vim.keymap.set("n", "]]", function()
+  map("n", "collections_next_section", function()
     jump_section(1)
-  end, { buffer = buf, silent = true, desc = "zotero: next section" })
+  end, "zotero: next section")
 
-  vim.keymap.set("n", "[[", function()
+  map("n", "collections_prev_section", function()
     jump_section(-1)
-  end, { buffer = buf, silent = true, desc = "zotero: prev section" })
+  end, "zotero: prev section")
 
-  vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: select collection" })
+  map("n", "collections_select", on_enter, "zotero: select collection")
 
-  vim.keymap.set("n", "<leader>zt", function()
+  map("n", "collections_toggle_pane", function()
     layout.toggle_collections()
-  end, { buffer = buf, silent = true, desc = "zotero: toggle collections pane" })
+  end, "zotero: toggle collections pane")
 
-  vim.keymap.set("n", "<Tab>", function()
+  map("n", "collections_focus_items", function()
     layout.focus_items()
-  end, { buffer = buf, silent = true, desc = "zotero: focus items" })
+  end, "zotero: focus items")
 
-  vim.keymap.set("n", "<leader>zN", function()
+  map("n", "collections_new", function()
     local entry = M.get_collection_at_line(cursor_line)
     local parent_key = nil
     local parent_name = ""
@@ -314,9 +328,9 @@ function M.set_keymaps()
         M.refresh_counts()
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: create collection" })
+  end, "zotero: create collection")
 
-  vim.keymap.set("n", "<leader>zD", function()
+  map("n", "collections_delete", function()
     local entry = M.get_collection_at_line(cursor_line)
     if not entry or not entry.collectionID then
       return
@@ -336,7 +350,7 @@ function M.set_keymaps()
       vim.notify("zotero: trashed collection '" .. name .. "'", vim.log.levels.INFO)
       M.refresh_counts()
     end
-  end, { buffer = buf, silent = true, desc = "zotero: trash collection" })
+  end, "zotero: trash collection")
 end
 
 function M.get_selected_collection_id()
