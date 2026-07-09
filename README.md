@@ -93,8 +93,44 @@ require("zotero").setup({
   columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
 
   keymaps = {
-    enabled      = true,           -- register global keymaps
+    enabled      = true,           -- master switch; false disables all keymaps
     open_library = "<leader>zz",   -- toggle Zotero browser
+    fuzzy_find   = "<leader>zf",   -- fuzzy search items
+
+    -- Items pane keymaps (set nil or false to disable individual keymaps)
+    items_show_detail        = "<CR>",
+    items_open_attachment    = "<leader>zo",
+    items_open_url           = "<leader>zb",
+    items_edit_item          = "<leader>ze",
+    items_import_pdf         = "<leader>zi",
+    items_attach_pdf         = "<leader>za",
+    items_move_to_collection = "<leader>zM",
+    items_add_by_identifier  = "<leader>zn",
+    items_delete             = "<leader>zD",
+    items_sort_title         = "<leader>zs",
+    items_sort_year          = "<leader>zS",
+    items_sort_date_added    = "<leader>zd",
+    items_search             = "<leader>z/",
+    items_clear_search       = "<leader>zc",
+    items_refresh            = "<leader>zr",
+    items_toggle_columns     = "<leader>zv",
+    items_toggle_collections = "<leader>zt",
+    items_toggle_mark        = "<leader>zm",
+    items_show_only_marked   = "<leader>zl",
+    items_focus_collections  = "<Tab>",
+    items_show_help          = "?",
+
+    -- Collections pane keymaps
+    collections_move_down       = "j",
+    collections_move_up         = "k",
+    collections_next_section    = "]]",
+    collections_prev_section    = "[[",
+    collections_select          = "<CR>",
+    collections_toggle_pane     = "<leader>zt",
+    collections_focus_items     = "<Tab>",
+    collections_new             = "<leader>zN",
+    collections_delete          = "<leader>zD",
+    collections_focus_items_esc = "<Esc>",
   },
 })
 ```
@@ -133,7 +169,7 @@ Column presets can be cycled with `<leader>zv`: configured, compact, normal, ful
 | `<leader>ze` | Edit item metadata                                    |
 | `<leader>zi` | Import PDF (standalone)                               |
 | `<leader>za` | Attach PDF to selected item                           |
-| `<leader>zm` | Move item to collection                               |
+| `<leader>zM` | Move item to collection                               |
 | `<leader>zn` | Add item by identifier (DOI/ISBN/PMID/arXiv)          |
 | `<leader>zD` | Delete item (trash; permanent delete in Trash view)   |
 | `<leader>zs` | Sort by title                                         |
@@ -144,8 +180,8 @@ Column presets can be cycled with `<leader>zv`: configured, compact, normal, ful
 | `<leader>zr` | Refresh                                               |
 | `<leader>zv` | Toggle column preset (configured/compact/normal/full) |
 | `<leader>zt` | Toggle collections pane                               |
-| `<leader>zM` | Toggle mark on item                                   |
-| `<leader>zL` | Show only marked items                                |
+| `<leader>zm` | Toggle mark on item                                   |
+| `<leader>zl` | Show only marked items                                |
 | `<Tab>`      | Focus collections pane                                |
 | `?`          | Show help popup                                       |
 

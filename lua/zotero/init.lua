@@ -99,9 +99,11 @@ function M.setup(opts)
     end, { desc = "zotero: open library browser" })
   end
 
-  vim.keymap.set("n", "<leader>zf", function()
-    M.fuzzy_find()
-  end, { desc = "zotero: search items" })
+  if cfg.keymaps.enabled and cfg.keymaps.fuzzy_find then
+    vim.keymap.set("n", cfg.keymaps.fuzzy_find, function()
+      M.fuzzy_find()
+    end, { desc = "zotero: search items" })
+  end
 end
 
 function M.debug()

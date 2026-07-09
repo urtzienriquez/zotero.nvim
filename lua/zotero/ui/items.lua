@@ -430,7 +430,7 @@ function M.update_status()
   if show_only_marked then
     info = info .. "  [marked only]"
   end
-  vim.wo[win].statusline = info
+  vim.wo[win].winbar = info
 end
 
 local function on_enter()
@@ -668,37 +668,51 @@ function M.set_keymaps()
     return
   end
 
-  vim.keymap.set("n", "j", function()
+  local cfg = require("zotero.config").get()
+  local km = cfg.keymaps
+  if not km.enabled then
+    return
+  end
+
+  local function map(mode, name, rhs, desc)
+    local lhs = km[name]
+    if not lhs then
+      return
+    end
+    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
+  end
+
+  map("n", "items_move_down", function()
     move_cursor(vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move down" })
+  end, "zotero: move down")
 
-  vim.keymap.set("n", "k", function()
+  map("n", "items_move_up", function()
     move_cursor(-vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move up" })
+  end, "zotero: move up")
 
-  vim.keymap.set("n", "<Down>", function()
+  map("n", "items_move_down_alt", function()
     move_cursor(vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move down" })
+  end, "zotero: move down")
 
-  vim.keymap.set("n", "<Up>", function()
+  map("n", "items_move_up_alt", function()
     move_cursor(-vim.v.count1)
-  end, { buffer = buf, silent = true, desc = "zotero: move up" })
+  end, "zotero: move up")
 
-  vim.keymap.set("n", "gg", function()
+  map("n", "items_go_to_top", function()
     cursor_line = min_cursor_line()
     vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-  end, { buffer = buf, silent = true, desc = "zotero: go to top" })
+  end, "zotero: go to top")
 
-  vim.keymap.set("n", "G", function()
+  map("n", "items_go_to_bottom", function()
     local buf = vim.api.nvim_win_get_buf(layout.get_items_win())
     cursor_line = vim.api.nvim_buf_line_count(buf)
     vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-  end, { buffer = buf, silent = true, desc = "zotero: go to bottom" })
+  end, "zotero: go to bottom")
 
-  vim.keymap.set("n", "<CR>", on_enter, { buffer = buf, silent = true, desc = "zotero: show detail" })
-  vim.keymap.set("n", "<leader>zo", open_attachment, { buffer = buf, silent = true, desc = "zotero: open attachment" })
+  map("n", "items_show_detail", on_enter, "zotero: show detail")
+  map("n", "items_open_attachment", open_attachment, "zotero: open attachment")
 
-  vim.keymap.set("n", "<leader>zb", function()
+  map("n", "items_open_url", function()
     local item = get_item_at_visible_line(cursor_line)
     if not item then
       return
@@ -720,38 +734,38 @@ function M.set_keymaps()
     end
     local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
     vim.fn.jobstart({ viewer, link }, { detach = true })
-  end, { buffer = buf, silent = true, desc = "zotero: open URL/DOI in browser" })
+  end, "zotero: open URL/DOI in browser")
 
-  vim.keymap.set("n", "<leader>zs", function()
+  map("n", "items_sort_title", function()
     toggle_sort("title")
-  end, { buffer = buf, silent = true, desc = "zotero: sort by title" })
+  end, "zotero: sort by title")
 
-  vim.keymap.set("n", "<leader>zS", function()
+  map("n", "items_sort_year", function()
     toggle_sort("year")
-  end, { buffer = buf, silent = true, desc = "zotero: sort by year" })
+  end, "zotero: sort by year")
 
-  vim.keymap.set("n", "<leader>zt", function()
+  map("n", "items_toggle_collections", function()
     layout.toggle_collections()
-  end, { buffer = buf, silent = true, desc = "zotero: toggle collections pane" })
+  end, "zotero: toggle collections pane")
 
-  vim.keymap.set("n", "<leader>zd", function()
+  map("n", "items_sort_date_added", function()
     toggle_sort("dateAdded")
-  end, { buffer = buf, silent = true, desc = "zotero: sort by date added" })
+  end, "zotero: sort by date added")
 
-  vim.keymap.set("n", "<leader>z/", start_search, { buffer = buf, silent = true, desc = "zotero: search" })
-  vim.keymap.set("n", "<leader>zc", function()
+  map("n", "items_search", start_search, "zotero: search")
+  map("n", "items_clear_search", function()
     if is_searching then
       clear_search()
     end
-  end, { buffer = buf, silent = true, desc = "zotero: cancel search" })
+  end, "zotero: cancel search")
 
-  vim.keymap.set("n", "<leader>zr", function()
+  map("n", "items_refresh", function()
     M.fetch_and_render(true)
-  end, { buffer = buf, silent = true, desc = "zotero: refresh" })
+  end, "zotero: refresh")
 
-  vim.keymap.set("n", "<leader>zv", toggle_columns, { buffer = buf, silent = true, desc = "zotero: toggle column view" })
+  map("n", "items_toggle_columns", toggle_columns, "zotero: toggle column view")
 
-  vim.keymap.set("n", "<leader>zi", function()
+  map("n", "items_import_pdf", function()
     vim.ui.input({ prompt = "Import PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
@@ -763,9 +777,9 @@ function M.set_keymaps()
         end
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: import PDF" })
+  end, "zotero: import PDF")
 
-  vim.keymap.set("n", "<leader>za", function()
+  map("n", "items_attach_pdf", function()
     local item = get_item_at_visible_line(cursor_line)
     if not item then
       return
@@ -783,7 +797,7 @@ function M.set_keymaps()
         end
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: add attachment to item" })
+  end, "zotero: add attachment to item")
 
     local function delete_items_in_range(start_line, end_line)
     local seen = {}
@@ -861,7 +875,7 @@ function M.set_keymaps()
     end
   end
 
-  vim.keymap.set({ "n", "x" }, "<leader>zD", function()
+  map({ "n", "x" }, "items_delete", function()
     local mode = vim.api.nvim_get_mode().mode
     local start_line, end_line
 
@@ -878,9 +892,9 @@ function M.set_keymaps()
     end
 
     delete_items_in_range(start_line, end_line)
-  end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
+  end, "zotero: delete item(s)")
 
-  vim.keymap.set({ "n", "x" }, "<leader>zm", function()
+  map({ "n", "x" }, "items_move_to_collection", function()
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -933,9 +947,9 @@ function M.set_keymaps()
         require("zotero.ui.collections").refresh_counts()
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: move item(s) to collection" })
+  end, "zotero: move item(s) to collection")
 
-  vim.keymap.set({ "n", "x" }, "<leader>zM", function()
+  map({ "n", "x" }, "items_toggle_mark", function()
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -984,11 +998,11 @@ function M.set_keymaps()
     end
     vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
     require("zotero.ui.collections").refresh_display()
-  end, { buffer = buf, silent = true, desc = "zotero: toggle mark on item(s)" })
+  end, "zotero: toggle mark on item(s)")
 
-  vim.keymap.set("n", "<leader>zL", toggle_show_marked, { buffer = buf, silent = true, desc = "zotero: show only marked items" })
+  map("n", "items_show_only_marked", toggle_show_marked, "zotero: show only marked items")
 
-  vim.keymap.set("n", "<leader>zn", function()
+  map("n", "items_add_by_identifier", function()
     vim.ui.input({ prompt = "Add by identifier (DOI/ISBN/PMID/arXiv): " }, function(input)
       if input and input ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
@@ -998,24 +1012,24 @@ function M.set_keymaps()
         end
       end
     end)
-  end, { buffer = buf, silent = true, desc = "zotero: add item by identifier" })
+  end, "zotero: add item by identifier")
 
-  vim.keymap.set("n", "<leader>ze", function()
+  map("n", "items_edit_item", function()
     local win = layout.get_items_win()
     local cursor = vim.api.nvim_win_get_cursor(win)
     local item = get_item_at_visible_line(cursor[1])
     if item then
       require("zotero.edit").open_edit(item.itemID)
     end
-  end, { buffer = buf, silent = true, desc = "zotero: edit item" })
+  end, "zotero: edit item")
 
-  vim.keymap.set("n", "<Tab>", function()
+  map("n", "items_focus_collections", function()
     layout.focus_collections()
-  end, { buffer = buf, silent = true, desc = "zotero: focus collections" })
+  end, "zotero: focus collections")
 
-  vim.keymap.set("n", "?", function()
+  map("n", "items_show_help", function()
     M.show_help()
-  end, { buffer = buf, silent = true, desc = "zotero: help" })
+  end, "zotero: help")
 end
 
 function M.show_help()
@@ -1048,10 +1062,10 @@ function M.show_help()
     "  <leader>zt    Toggle collections pane",
     "  <leader>zi    Import PDF",
     "  <leader>za    Add attachment to item",
-    "  <leader>zm    Move item to collection",
+    "  <leader>zm    Toggle mark on item",
     "  <leader>zn    Add item by identifier (DOI/ISBN/etc.)",
-    "  <leader>zM    Toggle mark on item",
-    "  <leader>zL    Show only marked items",
+    "  <leader>zM    Move item to collection",
+    "  <leader>zl    Show only marked items",
     "  <leader>zD    Delete item (trash / permanent in Trash)",
     "  <Tab>         Focus collections",
     "",
