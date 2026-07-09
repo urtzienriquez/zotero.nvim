@@ -9,6 +9,7 @@ local state = {
   items_win = nil,
   tabpage = nil,
   is_open = false,
+  original_buf = nil,
 }
 
 local collections_hidden = false
@@ -31,6 +32,7 @@ function M.create_layout()
 
   -- use current window as items pane
   local items_win = vim.api.nvim_get_current_win()
+  state.original_buf = vim.api.nvim_win_get_buf(items_win)
   vim.api.nvim_win_set_buf(items_win, items_buf)
   vim.wo[items_win].wrap = false
   vim.wo[items_win].spell = false
@@ -164,17 +166,25 @@ function M.close()
   if win_valid(state.collections_win) then
     pcall(vim.api.nvim_win_close, state.collections_win, true)
   end
-  if win_valid(state.items_win) then
-    pcall(vim.api.nvim_win_close, state.items_win, true)
-  end
 
-  local total_wins = #vim.api.nvim_tabpage_list_wins(0)
-  if total_wins == 0 then
-    local scratch = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_open_win(scratch, true, {
-      split = "right",
-      win = 0,
-    })
+  if win_valid(state.items_win) then
+    local tp = vim.api.nvim_win_get_tabpage(state.items_win)
+    local all_wins = vim.api.nvim_tabpage_list_wins(tp)
+    local normal_wins = 0
+    for _, w in ipairs(all_wins) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      if not cfg.relative or cfg.relative == "" then
+        normal_wins = normal_wins + 1
+      end
+    end
+    if normal_wins <= 1 then
+      local target = state.original_buf and vim.api.nvim_buf_is_valid(state.original_buf)
+          and state.original_buf
+        or vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_win_set_buf(state.items_win, target)
+    else
+      pcall(vim.api.nvim_win_close, state.items_win, true)
+    end
   end
 
   for _, buf in ipairs(zotero_buffers) do
@@ -188,6 +198,7 @@ function M.close()
   state.collections_win = nil
   state.items_win = nil
   state.tabpage = nil
+  state.original_buf = nil
   state.is_open = false
 end
 
