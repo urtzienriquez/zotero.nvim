@@ -133,7 +133,7 @@ Column presets can be cycled with `<leader>zv`: configured, compact, normal, ful
 | `<leader>ze` | Edit item metadata                                    |
 | `<leader>zi` | Import PDF (standalone)                               |
 | `<leader>za` | Attach PDF to selected item                           |
-| `<leader>zm` | Move item to collection                               |
+| `<leader>zM` | Move item to collection                               |
 | `<leader>zn` | Add item by identifier (DOI/ISBN/PMID/arXiv)          |
 | `<leader>zD` | Delete item (trash; permanent delete in Trash view)   |
 | `<leader>zs` | Sort by title                                         |
@@ -144,7 +144,7 @@ Column presets can be cycled with `<leader>zv`: configured, compact, normal, ful
 | `<leader>zr` | Refresh                                               |
 | `<leader>zv` | Toggle column preset (configured/compact/normal/full) |
 | `<leader>zt` | Toggle collections pane                               |
-| `<leader>zM` | Toggle mark on item                                   |
+| `<leader>zm` | Toggle mark on item                                   |
 | `<leader>zL` | Show only marked items                                |
 | `<Tab>`      | Focus collections pane                                |
 | `?`          | Show help popup                                       |

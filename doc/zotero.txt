@@ -198,7 +198,7 @@ Items Pane~
   <leader>ze      Edit item metadata
   <leader>zi      Import PDF (standalone)
   <leader>za      Add PDF attachment to selected item
-  <leader>zm      Move item to collection
+  <leader>zM      Move item to collection
   <leader>zn      Add item by identifier (DOI/ISBN/PMID/arXiv)
   <leader>zD      Delete (trash) selected item; permanent delete in Trash view
   <leader>zs      Sort by title
@@ -211,7 +211,7 @@ Items Pane~
   <leader>zk      Regenerate BibTeX citation key
   <leader>zt      Toggle collections pane
   <Tab>           Focus collections pane
-  <leader>zM      Toggle mark on item
+  <leader>zm      Toggle mark on item
   <leader>zL      Show only marked items
   ?               Show help
 

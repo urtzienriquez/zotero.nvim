@@ -880,7 +880,7 @@ function M.set_keymaps()
     delete_items_in_range(start_line, end_line)
   end, { buffer = buf, silent = true, desc = "zotero: delete item(s)" })
 
-  vim.keymap.set({ "n", "x" }, "<leader>zm", function()
+  vim.keymap.set({ "n", "x" }, "<leader>zM", function()
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -935,7 +935,7 @@ function M.set_keymaps()
     end)
   end, { buffer = buf, silent = true, desc = "zotero: move item(s) to collection" })
 
-  vim.keymap.set({ "n", "x" }, "<leader>zM", function()
+  vim.keymap.set({ "n", "x" }, "<leader>zm", function()
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -1048,9 +1048,9 @@ function M.show_help()
     "  <leader>zt    Toggle collections pane",
     "  <leader>zi    Import PDF",
     "  <leader>za    Add attachment to item",
-    "  <leader>zm    Move item to collection",
+    "  <leader>zm    Toggle mark on item",
     "  <leader>zn    Add item by identifier (DOI/ISBN/etc.)",
-    "  <leader>zM    Toggle mark on item",
+    "  <leader>zM    Move item to collection",
     "  <leader>zL    Show only marked items",
     "  <leader>zD    Delete item (trash / permanent in Trash)",
     "  <Tab>         Focus collections",
