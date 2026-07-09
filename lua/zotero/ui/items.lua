@@ -430,7 +430,7 @@ function M.update_status()
   if show_only_marked then
     info = info .. "  [marked only]"
   end
-  vim.wo[win].statusline = info
+  vim.wo[win].winbar = info
 end
 
 local function on_enter()
