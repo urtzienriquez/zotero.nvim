@@ -71,6 +71,40 @@ local PRIORITY_FIELDS = {
   shortTitle = "Short Title",
 }
 
+local function resolve_path(attachment)
+  local path = attachment.path or ""
+  if path == "" then
+    return nil
+  end
+
+  local storage_dir = vim.fn.expand("~") .. "/Zotero/storage"
+  local full_path = nil
+
+  if path:find("^storage:") then
+    local rel = path:sub(9)
+    if attachment.key then
+      local candidate = storage_dir .. "/" .. attachment.key .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+    if not full_path then
+      local candidate = storage_dir .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+  elseif path:find("^attachments:") then
+    local rel = path:sub(13)
+    full_path = vim.fn.expand("~") .. "/Zotero/" .. rel
+    if vim.fn.filereadable(full_path) == 0 then
+      full_path = nil
+    end
+  end
+
+  return full_path or path
+end
+
 local function sanitize(val)
   if not val then
     return ""
@@ -194,7 +228,12 @@ function M.show_item(item_id)
     table.insert(lines, "  " .. string.rep("─", 60))
     table.insert(lines, "  Attachments (" .. tostring(#detail.attachments) .. "):")
     for _, att in ipairs(detail.attachments) do
-      table.insert(lines, "    " .. sanitize(att.title or att.path or "attachment"))
+      local full_path = resolve_path(att)
+      if full_path then
+        table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
+      else
+        table.insert(lines, "    " .. (sanitize(att.title) or "attachment"))
+      end
     end
   end
 
@@ -240,6 +279,8 @@ function M.show_item(item_id)
     title_pos = "center",
     zindex = 50,
   })
+
+  vim.wo[float_win].wrap = true
 
   M.apply_highlights(float_buf)
 
