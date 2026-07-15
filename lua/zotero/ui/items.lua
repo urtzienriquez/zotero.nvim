@@ -799,6 +799,29 @@ function M.set_keymaps()
     end)
   end, "zotero: add attachment to item")
 
+  map("n", "items_fix_attachment", function()
+    local item = get_item_at_visible_line(cursor_line)
+    if not item then
+      return
+    end
+    local attachment = db.get_attachment(item.itemID)
+    if not attachment then
+      vim.notify("zotero: no attachment data for this item — cursor must be on an attachment", vim.log.levels.INFO)
+      return
+    end
+    vim.ui.input({ prompt = "DOI for this attachment: " }, function(doi)
+      if doi and doi ~= "" then
+        local api = require("zotero.api")
+        local ok = api.fix_attachment_with_doi(attachment, vim.trim(doi))
+        if ok then
+          vim.defer_fn(function()
+            M.fetch_and_render(true)
+          end, 500)
+        end
+      end
+    end)
+  end, "zotero: fix attachment with DOI")
+
     local function delete_items_in_range(start_line, end_line)
     local seen = {}
     local to_delete = {}

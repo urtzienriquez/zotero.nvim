@@ -92,6 +92,99 @@ function M.regenerate_key(item_key)
   return nil
 end
 
+function M.create_item(item_type, fields, creators, tags)
+  if not item_type then
+    vim.notify("zotero: no item type provided", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local payload = vim.fn.json_encode({
+    itemType = item_type,
+    fields = fields or {},
+    creators = creators or {},
+    tags = tags or {},
+  })
+
+  local res = vim.fn.system({
+    "curl", "-s", "-w", "%{http_code}",
+    "-X", "POST",
+    BASE .. "/connector/createItem",
+    "-H", "Content-Type: application/json",
+    "-d", payload,
+  })
+
+  if vim.v.shell_error ~= 0 then
+    vim.notify("zotero: create item failed (curl error)", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local code = tonumber(res:sub(-3))
+  local body = #res > 3 and res:sub(1, -4) or ""
+
+  if code == 404 then
+    vim.notify("zotero: create item endpoint not found — restart Zotero to reload the plugin", vim.log.levels.ERROR)
+    return nil
+  end
+  if code ~= 200 then
+    local ok, parsed = pcall(vim.fn.json_decode, body)
+    local msg = (ok and parsed and parsed.error) and parsed.error or ("HTTP " .. tostring(code))
+    vim.notify("zotero: create item failed: " .. msg, vim.log.levels.ERROR)
+    return nil
+  end
+
+  local ok, parsed = pcall(vim.fn.json_decode, body)
+  if ok and type(parsed) == "table" and parsed.key then
+    return parsed.key
+  end
+
+  vim.notify("zotero: unexpected create item response", vim.log.levels.ERROR)
+  return nil
+end
+
+function M.fix_attachment_with_doi(attachment_item, doi)
+  if not attachment_item or not doi then
+    vim.notify("zotero: missing attachment item or DOI", vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: fetching metadata for DOI " .. doi .. "...", vim.log.levels.INFO)
+
+  local crossref = require("zotero.crossref")
+  local meta, err = crossref.fetch_metadata(doi)
+  if not meta then
+    vim.notify("zotero: could not fetch DOI metadata: " .. (err or "unknown error"), vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: creating item from metadata...", vim.log.levels.INFO)
+  local new_key = M.create_item(meta.itemType, meta.fields, meta.creators, meta.tags)
+  if not new_key then
+    vim.notify("zotero: failed to create item from metadata", vim.log.levels.ERROR)
+    return false
+  end
+
+  local db = require("zotero.db")
+  local file_path = db.resolve_attachment_path(attachment_item)
+  if file_path then
+    vim.notify("zotero: attaching PDF to new item...", vim.log.levels.INFO)
+    local ok = M.add_attachment(new_key, file_path)
+    if not ok then
+      vim.notify("zotero: created item but failed to attach PDF (path: " .. tostring(file_path) .. ")", vim.log.levels.WARN)
+    end
+  else
+    vim.notify("zotero: could not find PDF file to attach", vim.log.levels.WARN)
+  end
+
+  local item_key = db.get_item_key(attachment_item.itemID)
+  if item_key and item_key ~= "" then
+    vim.notify("zotero: removing old standalone attachment...", vim.log.levels.INFO)
+    M.delete_item(item_key)
+  end
+
+  vim.notify("zotero: item created from DOI successfully", vim.log.levels.INFO)
+  return true
+end
+
 function M.add_attachment(item_key, file_path)
   local payload = vim.fn.json_encode({
     itemKey = item_key,

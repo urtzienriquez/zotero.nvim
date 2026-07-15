@@ -476,6 +476,63 @@ function M.get_item_attachments(item_id)
   return json_query(sql)
 end
 
+function M.get_attachment(item_id)
+  local sql = [[
+    SELECT i.itemID, i.key, a.linkMode, a.contentType, a.path,
+      COALESCE(t.value, a.path) AS title
+    FROM items i
+    JOIN itemAttachments a ON i.itemID = a.itemID
+    LEFT JOIN (
+      SELECT id.itemID, dv.value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE i.itemID = ]] .. tostring(item_id) .. [[
+  ]]
+  local results = json_query(sql)
+  return results[1]
+end
+
+function M.resolve_attachment_path(attachment)
+  local path = attachment.path or ""
+  if path == "" then
+    return nil
+  end
+
+  local storage_dir = vim.fn.expand("~") .. "/Zotero/storage"
+  local full_path = nil
+
+  if path:find("^storage:") then
+    local rel = path:sub(9)
+    if attachment.key then
+      local candidate = storage_dir .. "/" .. attachment.key .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+    if not full_path then
+      local candidate = storage_dir .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+  elseif path:find("^attachments:") then
+    local rel = path:sub(13)
+    full_path = vim.fn.expand("~") .. "/Zotero/" .. rel
+    if vim.fn.filereadable(full_path) == 0 then
+      full_path = nil
+    end
+  else
+    full_path = vim.fn.expand(path)
+    if vim.fn.filereadable(full_path) == 0 then
+      full_path = nil
+    end
+  end
+
+  return full_path
+end
+
 function M.get_item_detail(item_id)
   local metadata = M.get_item_metadata(item_id)
   local authors = M.get_item_authors(item_id)
