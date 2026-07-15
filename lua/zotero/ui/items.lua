@@ -585,18 +585,25 @@ local function open_attachment()
     vim.notify("zotero: no attachments for this item", vim.log.levels.INFO)
     return
   end
-  if #attachments == 1 then
-    M.open_file(attachments[1])
+  local existing = vim.tbl_filter(function(a)
+    return db.resolve_attachment_path(a) ~= nil
+  end, attachments)
+  if #existing == 0 then
+    vim.notify("zotero: no attachment files found on disk for this item", vim.log.levels.INFO)
+    return
+  end
+  if #existing == 1 then
+    M.open_file(existing[1])
     return
   end
 
   local choices = {}
-  for _, a in ipairs(attachments) do
+  for _, a in ipairs(existing) do
     table.insert(choices, a.title or a.path or "attachment")
   end
   vim.ui.select(choices, { prompt = "Open attachment:" }, function(choice, idx)
     if choice and idx then
-      M.open_file(attachments[idx])
+      M.open_file(existing[idx])
     end
   end)
 end
@@ -641,7 +648,7 @@ function M.open_file(attachment)
   end
 
   if not full_path then
-    vim.notify("zotero: file not found: " .. path, vim.log.levels.WARN)
+    vim.notify("zotero: attachment file not found on disk", vim.log.levels.WARN)
     return
   end
 

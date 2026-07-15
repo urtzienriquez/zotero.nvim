@@ -102,7 +102,7 @@ local function resolve_path(attachment)
     end
   end
 
-  return full_path or path
+  return full_path
 end
 
 local function sanitize(val)
@@ -224,17 +224,19 @@ function M.show_item(item_id)
   end
 
   if detail.attachments and #detail.attachments > 0 then
+    local existing = vim.tbl_filter(function(att)
+      return resolve_path(att) ~= nil
+    end, detail.attachments)
+
     table.insert(lines, "")
-    table.insert(lines, "  " .. string.rep("─", 60))
-    table.insert(lines, "  Attachments (" .. tostring(#detail.attachments) .. "):")
-    for _, att in ipairs(detail.attachments) do
+    table.insert(lines, "  Attachments (" .. tostring(#existing) .. "):")
+    for _, att in ipairs(existing) do
       local full_path = resolve_path(att)
-      if full_path then
-        table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
-      else
-        table.insert(lines, "    " .. (sanitize(att.title) or "attachment"))
-      end
+      table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
     end
+  else
+    table.insert(lines, "")
+    table.insert(lines, "  Attachments (0):")
   end
 
   table.insert(lines, "  [press q to close]")
