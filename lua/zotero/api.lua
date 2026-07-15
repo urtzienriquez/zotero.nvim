@@ -185,6 +185,91 @@ function M.fix_attachment_with_doi(attachment_item, doi)
   return true
 end
 
+function M.fetch_metadata(identifier)
+  if not identifier or identifier == "" then
+    return nil, "no identifier provided"
+  end
+
+  -- For DOIs, try CrossRef first (fast, no Zotero side effects)
+  local doi = identifier:match("^10%..+$")
+    or identifier:match("^https?://[^/]+/doi/(10%..+)$")
+    or identifier:match("^https?://[^/]+/(10%..+)$")
+  if doi then
+    local crossref = require("zotero.crossref")
+    local meta, err = crossref.fetch_metadata(doi)
+    if meta then
+      return meta, nil
+    end
+  end
+
+  -- Fall back to Zotero's translator system for any identifier
+  local payload = vim.fn.json_encode({ identifier = identifier })
+  local res = vim.fn.system({
+    "curl", "-s", "-w", "%{http_code}",
+    "-X", "POST",
+    BASE .. "/connector/fetchMetadata",
+    "-H", "Content-Type: application/json",
+    "-d", payload,
+  })
+
+  if vim.v.shell_error ~= 0 then
+    return nil, "curl failed"
+  end
+
+  local code = tonumber(res:sub(-3))
+  local body = #res > 3 and res:sub(1, -4) or ""
+
+  if code ~= 200 then
+    local ok, parsed = pcall(vim.fn.json_decode, body)
+    local msg = (ok and parsed and parsed.error) or ("HTTP " .. tostring(code))
+    return nil, "fetch failed: " .. msg
+  end
+
+  local ok, parsed = pcall(vim.fn.json_decode, body)
+  if ok and type(parsed) == "table" and parsed.success and parsed.metadata then
+    return parsed.metadata, nil
+  end
+
+  return nil, "unexpected response"
+end
+
+function M.update_item_from_identifier(item_key, identifier)
+  if not item_key or not identifier then
+    vim.notify("zotero: missing item key or identifier", vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: fetching metadata for '" .. identifier .. "'...", vim.log.levels.INFO)
+
+  local meta, err = M.fetch_metadata(identifier)
+  if not meta then
+    vim.notify("zotero: could not fetch metadata: " .. (err or "unknown error"), vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: updating item with metadata...", vim.log.levels.INFO)
+
+  local updates = {}
+  if meta.fields and next(meta.fields) then
+    updates.fields = meta.fields
+  end
+  if meta.creators and #meta.creators > 0 then
+    updates.creators = meta.creators
+  end
+  if meta.tags and #meta.tags > 0 then
+    updates.tags = meta.tags
+  end
+
+  local ok = M.update_item(item_key, updates)
+  if not ok then
+    vim.notify("zotero: failed to update item from metadata", vim.log.levels.ERROR)
+    return false
+  end
+
+  vim.notify("zotero: item updated from identifier successfully", vim.log.levels.INFO)
+  return true
+end
+
 function M.add_attachment(item_key, file_path)
   local payload = vim.fn.json_encode({
     itemKey = item_key,

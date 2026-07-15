@@ -527,7 +527,7 @@ local function toggle_show_marked()
 end
 
 local function start_search()
-  vim.ui.input({ prompt = "zotero search: " }, function(input)
+  vim.ui.input({ prompt = "Search Zotero: " }, function(input)
     if input then
       search_term = input
       is_searching = true
@@ -796,7 +796,7 @@ function M.set_keymaps()
       vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
       return
     end
-    vim.ui.input({ prompt = "Add attachment (PDF path): ", completion = "file" }, function(path)
+    vim.ui.input({ prompt = "Attach PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
         local ok = require("zotero.api").add_attachment(item_key, vim.fn.expand(vim.trim(path)))
         if ok then
@@ -811,23 +811,45 @@ function M.set_keymaps()
     if not item then
       return
     end
+    local api = require("zotero.api")
     local attachment = db.get_attachment(item.itemID)
-    if not attachment then
-      vim.notify("zotero: no attachment data for this item — cursor must be on an attachment", vim.log.levels.INFO)
-      return
-    end
-    vim.ui.input({ prompt = "DOI for this attachment: " }, function(doi)
-      if doi and doi ~= "" then
-        local api = require("zotero.api")
-        local ok = api.fix_attachment_with_doi(attachment, vim.trim(doi))
-        if ok then
-          vim.defer_fn(function()
-            M.fetch_and_render(true)
-          end, 500)
+    if attachment then
+      vim.ui.input({ prompt = "DOI for attachment: " }, function(doi)
+        if doi and doi ~= "" then
+          local ok = api.fix_attachment_with_doi(attachment, vim.trim(doi))
+          if ok then
+            vim.defer_fn(function()
+              M.fetch_and_render(true)
+            end, 500)
+          end
+        end
+      end)
+    else
+      local item_key = db.get_item_key(item.itemID)
+      if not item_key or item_key == "" then
+        vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+        return
+      end
+      local metadata = db.get_item_metadata(item.itemID)
+      local current_identifier = ""
+      for _, m in ipairs(metadata) do
+        if m.fieldName == "DOI" and m.value and m.value ~= "" then
+          current_identifier = m.value
+          break
         end
       end
-    end)
-  end, "zotero: fix attachment with DOI")
+      vim.ui.input({ prompt = "Identifier (DOI/URL): ", default = current_identifier }, function(identifier)
+        if identifier and identifier ~= "" then
+          local ok = api.update_item_from_identifier(item_key, vim.trim(identifier))
+          if ok then
+            vim.defer_fn(function()
+              M.fetch_and_render(true)
+            end, 500)
+          end
+        end
+      end)
+    end
+  end, "zotero: fix or update item with DOI")
 
     local function delete_items_in_range(start_line, end_line)
     local seen = {}

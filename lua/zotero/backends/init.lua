@@ -18,7 +18,7 @@ function M.search_items(items, on_done)
   local cfg = require("zotero.config").get()
   local backend = cfg.backend
   if not backend then
-    vim.ui.input({ prompt = "Zotero search: " }, function(input)
+    vim.ui.input({ prompt = "Search Zotero: " }, function(input)
       if input then
         on_done(input)
       end

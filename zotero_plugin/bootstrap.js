@@ -188,6 +188,127 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  Zotero.Server.Endpoints["/connector/fetchMetadata"] = function () {};
+  Zotero.Server.Endpoints["/connector/fetchMetadata"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var identifier = data.identifier;
+
+        if (!identifier) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_IDENTIFIER" })];
+        }
+
+        var newItems = [];
+        var idStr = String(identifier);
+
+        if (/^https?:\/\//i.test(idStr)) {
+          var doi = Zotero.Utilities.cleanDOI(idStr);
+          if (doi) {
+            var translate = new Zotero.Translate.Search();
+            translate.setIdentifier({ DOI: doi });
+            var translators = await translate.getTranslators();
+            if (translators && translators.length) {
+              translate.setTranslator(translators);
+              var items = await translate.translate({ libraryID: false });
+              for (var j = 0; j < items.length; j++) {
+                newItems.push(items[j]);
+              }
+            }
+          } else {
+            var req = await Zotero.HTTP.request("GET", idStr, { responseType: "document" });
+            var doc = req.response;
+            if (!doc) {
+              return [400, "application/json", JSON.stringify({ error: "URL_FETCH_FAILED" })];
+            }
+            doc = Zotero.HTTP.wrapDocument(doc, idStr);
+            var translate = new Zotero.Translate.Web();
+            translate.setDocument(doc);
+            translate.setLocation(idStr);
+            var translators = await translate.getTranslators();
+            if (!translators || !translators.length) {
+              return [400, "application/json", JSON.stringify({ error: "NO_TRANSLATOR_FOUND" })];
+            }
+            translate.setTranslator(translators);
+            var items = await translate.translate({ libraryID: false });
+            for (var j = 0; j < items.length; j++) {
+              newItems.push(items[j]);
+            }
+          }
+        } else {
+          var identifiers = Zotero.Utilities.extractIdentifiers(idStr);
+          if (!identifiers || !identifiers.length) {
+            return [400, "application/json", JSON.stringify({ error: "NO_IDENTIFIER_FOUND" })];
+          }
+
+          for (var i = 0; i < identifiers.length; i++) {
+            var translate = new Zotero.Translate.Search();
+            translate.setIdentifier(identifiers[i]);
+            var translators = await translate.getTranslators();
+            if (!translators || !translators.length) {
+              continue;
+            }
+            translate.setTranslator(translators);
+            var items = await translate.translate({ libraryID: false });
+            for (var j = 0; j < items.length; j++) {
+              newItems.push(items[j]);
+            }
+          }
+        }
+
+        if (!newItems.length) {
+          return [400, "application/json", JSON.stringify({ error: "NO_TRANSLATOR_FOUND" })];
+        }
+
+        var item = newItems[0];
+        var itemType = item.itemType;
+        var itemTypeID = item.itemTypeID || Zotero.ItemTypes.getID(itemType);
+        var fields = {};
+
+        var typeFields = Zotero.ItemFields.getItemTypeFields(itemTypeID);
+        for (var f = 0; f < typeFields.length; f++) {
+          var fieldName = Zotero.ItemFields.getName(typeFields[f]);
+          var val = item[fieldName];
+          if (val !== false && val !== null && val !== undefined && val !== "") {
+            fields[fieldName] = val;
+          }
+        }
+
+        var creators = [];
+        var rawCreators = item.creators || [];
+        for (var c = 0; c < rawCreators.length; c++) {
+          creators.push({
+            firstName: rawCreators[c].firstName || "",
+            lastName: rawCreators[c].lastName || "",
+            creatorType: rawCreators[c].creatorType || "author",
+          });
+        }
+
+        var tags = [];
+        var rawTags = item.tags || [];
+        for (var t = 0; t < rawTags.length; t++) {
+          var tag = rawTags[t];
+          tags.push((typeof tag === "string") ? tag : tag.tag);
+        }
+
+        return [200, "application/json", JSON.stringify({
+          success: true,
+          metadata: {
+            itemType: itemType,
+            fields: fields,
+            creators: creators,
+            tags: tags,
+          },
+        })];
+      } catch (e) {
+        Zotero.logError("fetchMetadata error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
   Zotero.Server.Endpoints["/connector/addByIdentifier"] = function () {};
   Zotero.Server.Endpoints["/connector/addByIdentifier"].prototype = {
     supportedMethods: ["POST"],
@@ -201,11 +322,6 @@ async function startup({ id, version, resourceURI, rootURI }) {
           return [400, "application/json", JSON.stringify({ error: "MISSING_IDENTIFIER" })];
         }
 
-        var identifiers = Zotero.Utilities.extractIdentifiers(String(identifier));
-        if (!identifiers || !identifiers.length) {
-          return [400, "application/json", JSON.stringify({ error: "NO_IDENTIFIER_FOUND" })];
-        }
-
         var libraryID = Zotero.Libraries.userLibraryID;
         var collectionKey = data.collectionKey;
         var translateOptions = {
@@ -216,18 +332,59 @@ async function startup({ id, version, resourceURI, rootURI }) {
           translateOptions.collections = [collectionKey];
         }
         var newItems = [];
+        var idStr = String(identifier);
 
-        for (var i = 0; i < identifiers.length; i++) {
-          var translate = new Zotero.Translate.Search();
-          translate.setIdentifier(identifiers[i]);
-          var translators = await translate.getTranslators();
-          if (!translators || !translators.length) {
-            continue;
+        if (/^https?:\/\//i.test(idStr)) {
+          var doi = Zotero.Utilities.cleanDOI(idStr);
+          if (doi) {
+            var translate = new Zotero.Translate.Search();
+            translate.setIdentifier({ DOI: doi });
+            var translators = await translate.getTranslators();
+            if (translators && translators.length) {
+              translate.setTranslator(translators);
+              var items = await translate.translate(translateOptions);
+              for (var j = 0; j < items.length; j++) {
+                newItems.push(items[j]);
+              }
+            }
+          } else {
+            var req = await Zotero.HTTP.request("GET", idStr, { responseType: "document" });
+            var doc = req.response;
+            if (!doc) {
+              return [400, "application/json", JSON.stringify({ error: "URL_FETCH_FAILED" })];
+            }
+            doc = Zotero.HTTP.wrapDocument(doc, idStr);
+            var translate = new Zotero.Translate.Web();
+            translate.setDocument(doc);
+            translate.setLocation(idStr);
+            var translators = await translate.getTranslators();
+            if (!translators || !translators.length) {
+              return [400, "application/json", JSON.stringify({ error: "NO_TRANSLATOR_FOUND" })];
+            }
+            translate.setTranslator(translators);
+            var items = await translate.translate(translateOptions);
+            for (var j = 0; j < items.length; j++) {
+              newItems.push(items[j]);
+            }
           }
-          translate.setTranslator(translators);
-          var items = await translate.translate(translateOptions);
-          for (var j = 0; j < items.length; j++) {
-            newItems.push(items[j]);
+        } else {
+          var identifiers = Zotero.Utilities.extractIdentifiers(idStr);
+          if (!identifiers || !identifiers.length) {
+            return [400, "application/json", JSON.stringify({ error: "NO_IDENTIFIER_FOUND" })];
+          }
+
+          for (var i = 0; i < identifiers.length; i++) {
+            var translate = new Zotero.Translate.Search();
+            translate.setIdentifier(identifiers[i]);
+            var translators = await translate.getTranslators();
+            if (!translators || !translators.length) {
+              continue;
+            }
+            translate.setTranslator(translators);
+            var items = await translate.translate(translateOptions);
+            for (var j = 0; j < items.length; j++) {
+              newItems.push(items[j]);
+            }
           }
         }
 
@@ -667,6 +824,7 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/regenerateKey"];
   delete Zotero.Server.Endpoints["/connector/addAttachment"];
   delete Zotero.Server.Endpoints["/connector/createItem"];
+  delete Zotero.Server.Endpoints["/connector/fetchMetadata"];
   delete Zotero.Server.Endpoints["/connector/addByIdentifier"];
   delete Zotero.Server.Endpoints["/connector/deleteItem"];
   delete Zotero.Server.Endpoints["/connector/deleteItems"];

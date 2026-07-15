@@ -322,7 +322,7 @@ function M.set_keymaps()
         parent_name = " in '" .. parent_name .. "'"
       end
     end
-    vim.ui.input({ prompt = "New collection name" .. parent_name .. ": " }, function(name)
+    vim.ui.input({ prompt = "Collection name" .. parent_name .. ": " }, function(name)
       if name and name ~= "" then
         require("zotero.api").create_collection(vim.trim(name), parent_key)
         M.refresh_counts()
