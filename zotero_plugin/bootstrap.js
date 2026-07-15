@@ -139,6 +139,55 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  Zotero.Server.Endpoints["/connector/createItem"] = function () {};
+  Zotero.Server.Endpoints["/connector/createItem"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var itemType = data.itemType;
+        var fields = data.fields || {};
+        var creators = data.creators || [];
+        var tags = data.tags || [];
+
+        if (!itemType) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_ITEM_TYPE" })];
+        }
+
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var item = new Zotero.Item(itemType);
+        item.libraryID = libraryID;
+
+        for (var field in fields) {
+          if (Object.prototype.hasOwnProperty.call(fields, field)) {
+            item.setField(field, fields[field]);
+          }
+        }
+
+        if (creators.length > 0) {
+          item.setCreators(creators);
+        }
+
+        var tagObjects = tags.map(function (t) {
+          if (typeof t === "string") return { tag: t, type: 0 };
+          return { tag: t.tag || t, type: t.type || 0 };
+        });
+        item.setTags(tagObjects);
+
+        await item.save();
+
+        return [200, "application/json", JSON.stringify({
+          success: true,
+          key: item.key,
+        })];
+      } catch (e) {
+        Zotero.logError("createItem error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
   Zotero.Server.Endpoints["/connector/addByIdentifier"] = function () {};
   Zotero.Server.Endpoints["/connector/addByIdentifier"].prototype = {
     supportedMethods: ["POST"],
@@ -617,6 +666,7 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/updateItem"];
   delete Zotero.Server.Endpoints["/connector/regenerateKey"];
   delete Zotero.Server.Endpoints["/connector/addAttachment"];
+  delete Zotero.Server.Endpoints["/connector/createItem"];
   delete Zotero.Server.Endpoints["/connector/addByIdentifier"];
   delete Zotero.Server.Endpoints["/connector/deleteItem"];
   delete Zotero.Server.Endpoints["/connector/deleteItems"];

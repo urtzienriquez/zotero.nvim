@@ -137,13 +137,22 @@ local function item_type_filter()
   return table.concat(ids, ",")
 end
 
+local function not_child(t)
+  local p = t and (t .. ".") or ""
+  -- Exclude items that are children (have a parentItemID)
+  -- This allows regular items AND standalone attachments/notes/annotations
+  return p .. "itemID NOT IN (SELECT itemID FROM itemAttachments WHERE parentItemID IS NOT NULL)"
+    .. " AND " .. p .. "itemID NOT IN (SELECT itemID FROM itemNotes WHERE parentItemID IS NOT NULL)"
+    .. " AND " .. p .. "itemID NOT IN (SELECT itemID FROM itemAnnotations WHERE parentItemID IS NOT NULL)"
+end
+
 local function not_trashed()
   return "i.itemID NOT IN (SELECT itemID FROM deletedItems)"
 end
 
 function M.get_stats()
   local collections = raw_query("SELECT COUNT(*) FROM collections")
-  local items = raw_query("SELECT COUNT(*) FROM items WHERE itemTypeID NOT IN (" .. item_type_filter() .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)")
+  local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)")
   return {
     collections = tonumber(collections) or 0,
     items = tonumber(items) or 0,
@@ -177,7 +186,7 @@ function M.get_collections()
       SELECT ci.collectionID, COUNT(*) AS cnt
       FROM collectionItems ci
       JOIN items i ON ci.itemID = i.itemID
-      WHERE i.itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+      WHERE ]] .. not_child("i") .. [[
         AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
       GROUP BY ci.collectionID
     )
@@ -196,7 +205,7 @@ function M.get_collections()
 end
 
 function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override)
-  local where = "i.itemTypeID NOT IN (" .. item_type_filter() .. ") AND " .. not_trashed()
+  local where = not_child("i") .. " AND " .. not_trashed()
   local params = {}
 
   if collection_id then
@@ -356,7 +365,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
       JOIN itemDataValues dv ON id.valueID = dv.valueID
       WHERE id.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
     ) p ON i.itemID = p.itemID
-    WHERE i.itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+    WHERE ]] .. not_child("i") .. [[
 
     UNION ALL
 
@@ -383,7 +392,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
 end
 
 function M.get_trash_count()
-  local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE i.itemTypeID NOT IN (" .. item_type_filter() .. ")")
+  local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE (" .. not_child("i") .. ")")
   local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections")
   return (tonumber(item_count) or 0) + (tonumber(col_count) or 0)
 end
@@ -465,6 +474,63 @@ function M.get_item_attachments(item_id)
     ORDER BY i.dateAdded
   ]]
   return json_query(sql)
+end
+
+function M.get_attachment(item_id)
+  local sql = [[
+    SELECT i.itemID, i.key, a.linkMode, a.contentType, a.path,
+      COALESCE(t.value, a.path) AS title
+    FROM items i
+    JOIN itemAttachments a ON i.itemID = a.itemID
+    LEFT JOIN (
+      SELECT id.itemID, dv.value
+      FROM itemData id
+      JOIN itemDataValues dv ON id.valueID = dv.valueID
+      WHERE id.fieldID = 1
+    ) t ON i.itemID = t.itemID
+    WHERE i.itemID = ]] .. tostring(item_id) .. [[
+  ]]
+  local results = json_query(sql)
+  return results[1]
+end
+
+function M.resolve_attachment_path(attachment)
+  local path = attachment.path or ""
+  if path == "" then
+    return nil
+  end
+
+  local storage_dir = vim.fn.expand("~") .. "/Zotero/storage"
+  local full_path = nil
+
+  if path:find("^storage:") then
+    local rel = path:sub(9)
+    if attachment.key then
+      local candidate = storage_dir .. "/" .. attachment.key .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+    if not full_path then
+      local candidate = storage_dir .. "/" .. rel
+      if vim.fn.filereadable(candidate) == 1 then
+        full_path = candidate
+      end
+    end
+  elseif path:find("^attachments:") then
+    local rel = path:sub(13)
+    full_path = vim.fn.expand("~") .. "/Zotero/" .. rel
+    if vim.fn.filereadable(full_path) == 0 then
+      full_path = nil
+    end
+  else
+    full_path = vim.fn.expand(path)
+    if vim.fn.filereadable(full_path) == 0 then
+      full_path = nil
+    end
+  end
+
+  return full_path
 end
 
 function M.get_item_detail(item_id)
@@ -594,7 +660,7 @@ function M.get_items_by_field_value(field_name, value)
     ) t ON i.itemID = t.itemID
     WHERE id.fieldID = ]] .. field_id .. [[
       AND dv.value = ']] .. types.escape_sql(value) .. [['
-      AND i.itemTypeID NOT IN (]] .. item_type_filter() .. [[)
+      AND (]] .. not_child("i") .. [[)
       AND ]] .. not_trashed() .. [[
   ]]
   return json_query(sql)

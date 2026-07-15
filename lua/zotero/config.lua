@@ -19,6 +19,7 @@ M.defaults = {
     items_edit_item = "<leader>ze",
     items_import_pdf = "<leader>zi",
     items_attach_pdf = "<leader>za",
+    items_fix_attachment = "<leader>zF",
     items_move_to_collection = "<leader>zM",
     items_add_by_identifier = "<leader>zn",
     items_delete = "<leader>zD",
