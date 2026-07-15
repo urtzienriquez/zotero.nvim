@@ -233,6 +233,22 @@ function M.fetch_metadata(identifier)
   return nil, "unexpected response"
 end
 
+function M.set_date_added(item_key, date_added)
+  if not item_key or not date_added then
+    vim.notify("zotero: missing item key or date", vim.log.levels.ERROR)
+    return false
+  end
+  return M.update_item(item_key, { dateAdded = date_added })
+end
+
+function M.set_date_modified(item_key, date_modified)
+  if not item_key or not date_modified then
+    vim.notify("zotero: missing item key or date", vim.log.levels.ERROR)
+    return false
+  end
+  return M.update_item(item_key, { dateModified = date_modified })
+end
+
 function M.update_item_from_identifier(item_key, identifier)
   if not item_key or not identifier then
     vim.notify("zotero: missing item key or identifier", vim.log.levels.ERROR)

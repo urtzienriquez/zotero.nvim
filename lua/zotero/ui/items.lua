@@ -1130,6 +1130,11 @@ function M.show_help()
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end
 
+function M.get_current_item()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  return get_item_at_visible_line(cursor[1])
+end
+
 function M.get_marked_count()
   local count = 0
   for _, _ in pairs(marked_items) do

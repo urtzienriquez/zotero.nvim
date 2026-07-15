@@ -49,6 +49,12 @@ async function startup({ id, version, resourceURI, rootURI }) {
           item.setType(typeID);
         }
       }
+      if (updates.dateAdded != null) {
+        item.setField("dateAdded", String(updates.dateAdded).trim());
+      }
+      if (updates.dateModified != null) {
+        item.setField("dateModified", String(updates.dateModified).trim());
+      }
 
       await item.save();
 
