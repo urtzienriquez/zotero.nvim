@@ -576,7 +576,12 @@ local function clear_search()
 end
 
 local function open_attachment()
-  local item = get_item_at_visible_line(cursor_line)
+  local win = layout.get_items_win()
+  if not win then
+    return
+  end
+  local cursor = vim.api.nvim_win_get_cursor(win)
+  local item = get_item_at_visible_line(cursor[1])
   if not item then
     return
   end
@@ -720,7 +725,10 @@ function M.set_keymaps()
   map("n", "items_open_attachment", open_attachment, "zotero: open attachment")
 
   map("n", "items_open_url", function()
-    local item = get_item_at_visible_line(cursor_line)
+    local win = layout.get_items_win()
+    if not win then return end
+    local cur = vim.api.nvim_win_get_cursor(win)
+    local item = get_item_at_visible_line(cur[1])
     if not item then
       return
     end
@@ -787,7 +795,10 @@ function M.set_keymaps()
   end, "zotero: import PDF")
 
   map("n", "items_attach_pdf", function()
-    local item = get_item_at_visible_line(cursor_line)
+    local win = layout.get_items_win()
+    if not win then return end
+    local cur = vim.api.nvim_win_get_cursor(win)
+    local item = get_item_at_visible_line(cur[1])
     if not item then
       return
     end
@@ -807,7 +818,10 @@ function M.set_keymaps()
   end, "zotero: add attachment to item")
 
   map("n", "items_fix_attachment", function()
-    local item = get_item_at_visible_line(cursor_line)
+    local win = layout.get_items_win()
+    if not win then return end
+    local cur = vim.api.nvim_win_get_cursor(win)
+    local item = get_item_at_visible_line(cur[1])
     if not item then
       return
     end
@@ -1082,6 +1096,14 @@ function M.set_keymaps()
   map("n", "items_show_help", function()
     M.show_help()
   end, "zotero: help")
+
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    buffer = buf,
+    callback = function()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      cursor_line = cursor[1]
+    end,
+  })
 end
 
 function M.show_help()
