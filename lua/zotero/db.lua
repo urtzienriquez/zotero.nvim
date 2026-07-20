@@ -127,6 +127,49 @@ local FIELD_IDS = {
   PMCID = 121,
 }
 
+local ACCENT_MAP = {
+  -- Carons (Czech/Slovak/Croatian/Slovenian)
+  ["š"] = "s", ["č"] = "c", ["ž"] = "z", ["ř"] = "r",
+  ["ď"] = "d", ["ť"] = "t", ["ň"] = "n",
+  ["Š"] = "S", ["Č"] = "C", ["Ž"] = "Z", ["Ř"] = "R",
+  ["Ď"] = "D", ["Ť"] = "T", ["Ň"] = "N",
+  -- Cedillas (Turkish/Romanian/Catalan)
+  ["ş"] = "s", ["Ş"] = "S", ["ç"] = "c", ["Ç"] = "C",
+  -- Tilde
+  ["ñ"] = "n", ["Ñ"] = "N", ["ã"] = "a", ["Ã"] = "A", ["õ"] = "o", ["Õ"] = "O",
+  -- Acute/Grave/Circumflex
+  ["á"] = "a", ["à"] = "a", ["â"] = "a", ["Á"] = "A", ["À"] = "A", ["Â"] = "A",
+  ["é"] = "e", ["è"] = "e", ["ê"] = "e", ["É"] = "E", ["È"] = "E", ["Ê"] = "E",
+  ["í"] = "i", ["ì"] = "i", ["î"] = "i", ["Í"] = "I", ["Ì"] = "I", ["Î"] = "I",
+  ["ó"] = "o", ["ò"] = "o", ["ô"] = "o", ["Ó"] = "O", ["Ò"] = "O", ["Ô"] = "O",
+  ["ú"] = "u", ["ù"] = "u", ["û"] = "u", ["Ú"] = "U", ["Ù"] = "U", ["Û"] = "U",
+  ["ý"] = "y", ["Ý"] = "Y",
+  -- Umlaut/Diaeresis
+  ["ä"] = "a", ["Ä"] = "A", ["ë"] = "e", ["Ë"] = "E",
+  ["ï"] = "i", ["Ï"] = "I", ["ö"] = "o", ["Ö"] = "O", ["ü"] = "u", ["Ü"] = "U",
+  ["ÿ"] = "y",
+  -- Ring
+  ["å"] = "a", ["Å"] = "A",
+  -- Slash
+  ["ø"] = "o", ["Ø"] = "O", ["ł"] = "l", ["Ł"] = "L",
+  -- Eth/Thorn
+  ["ð"] = "d", ["Ð"] = "D", ["þ"] = "th", ["Þ"] = "TH",
+  -- Dutch ĳ
+  ["ĳ"] = "ij", ["Ĳ"] = "IJ",
+  -- Breve
+  ["ă"] = "a", ["Ă"] = "A",
+  -- Double acute
+  ["ő"] = "o", ["Ő"] = "O", ["ű"] = "u", ["Ű"] = "U",
+}
+
+local function deaccent_sql(column)
+  local sql = column
+  for acc, ascii in pairs(ACCENT_MAP) do
+    sql = string.format("REPLACE(%s, '%s', '%s')", sql, acc, ascii)
+  end
+  return sql
+end
+
 local ITEM_TYPES_FILTER = { 1, 3, 28 }
 
 local function item_type_filter()
@@ -221,26 +264,29 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       local clauses = {}
       for _, escaped in ipairs(words) do
         clauses[#clauses + 1] = [[(
-          t.title LIKE '%]] .. escaped .. [[%'
-          OR p.publicationTitle LIKE '%]] .. escaped .. [[%'
+          (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. escaped .. [[%')
+          OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. escaped .. [[%')
           OR EXISTS (
             SELECT 1 FROM itemCreators ic2
             JOIN creators c2 ON ic2.creatorID = c2.creatorID
             WHERE ic2.itemID = i.itemID
-            AND (c2.lastName LIKE '%]] .. escaped .. [[%' OR c2.firstName LIKE '%]] .. escaped .. [[%')
+            AND (c2.lastName LIKE '%]] .. escaped .. [[%'
+              OR c2.firstName LIKE '%]] .. escaped .. [[%'
+              OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. escaped .. [[%'
+              OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. escaped .. [[%')
           )
           OR y.date_str LIKE ']] .. escaped .. [[%'
           OR EXISTS (
             SELECT 1 FROM itemData id3
             JOIN itemDataValues dv3 ON id3.valueID = dv3.valueID
             WHERE id3.itemID = i.itemID AND id3.fieldID = ]] .. FIELD_IDS.abstractNote .. [[
-            AND dv3.value LIKE '%]] .. escaped .. [[%'
+            AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. escaped .. [[%')
           )
           OR EXISTS (
             SELECT 1 FROM itemTags it3
             JOIN tags t3 ON it3.tagID = t3.tagID
             WHERE it3.itemID = i.itemID
-            AND t3.name LIKE '%]] .. escaped .. [[%'
+            AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. escaped .. [[%')
           )
         )]]
       end
