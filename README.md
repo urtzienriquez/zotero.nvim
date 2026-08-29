@@ -117,6 +117,7 @@ require("zotero").setup({
     items_toggle_collections = "<leader>zt",
     items_toggle_mark        = "<leader>zm",
     items_show_only_marked   = "<leader>zl",
+    toggle_statuscolumn      = "<leader>zg",
     items_focus_collections  = "<Tab>",
     items_show_help          = "?",
 
@@ -136,6 +137,8 @@ require("zotero").setup({
 ```
 
 Column presets can be cycled with `<leader>zv`: configured, compact, normal, full. The preset determines which subset of the configured columns is shown.
+
+By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, or relative numbers). Press `<leader>zg` in either pane to toggle the full statuscolumn on/off for both panes.
 
 ## Keymaps
 
@@ -182,6 +185,7 @@ Column presets can be cycled with `<leader>zv`: configured, compact, normal, ful
 | `<leader>zt` | Toggle collections pane                               |
 | `<leader>zm` | Toggle mark on item                                   |
 | `<leader>zl` | Show only marked items                                |
+| `<leader>zg` | Toggle statuscolumn (signcolumn, numbers)             |
 | `<Tab>`      | Focus collections pane                                |
 | `?`          | Show help popup                                       |
 

@@ -14,6 +14,41 @@ local state = {
 
 local collections_hidden = false
 
+local statuscolumn_visible = false
+
+local function apply_statuscolumn(win)
+  local wins = {}
+  if win and vim.api.nvim_win_is_valid(win) then
+    table.insert(wins, win)
+  else
+    if state.collections_win and vim.api.nvim_win_is_valid(state.collections_win) then
+      table.insert(wins, state.collections_win)
+    end
+    if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
+      table.insert(wins, state.items_win)
+    end
+  end
+  for _, w in ipairs(wins) do
+    if statuscolumn_visible then
+      vim.wo[w].signcolumn = "yes"
+      vim.wo[w].number = true
+      vim.wo[w].relativenumber = true
+      vim.wo[w].statuscolumn = ""
+    else
+      vim.wo[w].signcolumn = "no"
+      vim.wo[w].number = false
+      vim.wo[w].relativenumber = false
+      vim.wo[w].statuscolumn = ""
+    end
+  end
+end
+
+function M.toggle_statuscolumn()
+  statuscolumn_visible = not statuscolumn_visible
+  apply_statuscolumn()
+  vim.notify("zotero: statuscolumn " .. (statuscolumn_visible and "shown" or "hidden"), vim.log.levels.INFO)
+end
+
 function M.create_layout()
   local collections_buf = vim.api.nvim_create_buf(false, true)
   local items_buf = vim.api.nvim_create_buf(false, true)
@@ -36,9 +71,8 @@ function M.create_layout()
   vim.api.nvim_win_set_buf(items_win, items_buf)
   vim.wo[items_win].wrap = false
   vim.wo[items_win].spell = false
-  vim.wo[items_win].signcolumn = "yes"
   vim.wo[items_win].cursorline = true
-  vim.wo[items_win].cursorlineopt = "line,number"
+  apply_statuscolumn(items_win)
 
   -- split left for collections
   local collections_win = nil
@@ -49,9 +83,8 @@ function M.create_layout()
       width = collections_width,
     })
     vim.wo[collections_win].spell = false
-    vim.wo[collections_win].signcolumn = "yes"
     vim.wo[collections_win].cursorline = true
-    vim.wo[collections_win].cursorlineopt = "line,number"
+    apply_statuscolumn(collections_win)
   end
 
   local tabpage = vim.api.nvim_win_get_tabpage(items_win)
@@ -79,6 +112,7 @@ function M.set_keymaps()
   end
 
   local collections_buf = state.collections_buf
+  local items_buf = state.items_buf
 
   local lhs = km.collections_focus_items_esc
   if lhs then
@@ -87,6 +121,18 @@ function M.set_keymaps()
         vim.api.nvim_set_current_win(state.items_win)
       end
     end, { buffer = collections_buf, silent = true, nowait = true, desc = "zotero: focus items" })
+  end
+
+  local toggle_lhs = km.toggle_statuscolumn
+  if toggle_lhs then
+    for _, buf in ipairs({ collections_buf, items_buf }) do
+      vim.keymap.set("n", toggle_lhs, M.toggle_statuscolumn, {
+        buffer = buf,
+        silent = true,
+        nowait = true,
+        desc = "zotero: toggle statuscolumn",
+      })
+    end
   end
 end
 
@@ -140,9 +186,8 @@ function M.toggle_collections()
       width = collections_width,
     })
     collections_hidden = false
-    vim.wo[state.collections_win].signcolumn = "yes"
     vim.wo[state.collections_win].cursorline = true
-    vim.wo[state.collections_win].cursorlineopt = "line,number"
+    apply_statuscolumn(state.collections_win)
     require("zotero.ui.collections").render()
   end
 end

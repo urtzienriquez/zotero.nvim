@@ -32,7 +32,8 @@ M.defaults = {
     items_toggle_columns = "<leader>zv",
     items_toggle_collections = "<leader>zt",
     items_toggle_mark = "<leader>zm",
-items_show_only_marked   = "<leader>zl",
+    items_show_only_marked   = "<leader>zl",
+    toggle_statuscolumn = "<leader>zg",
     items_focus_collections = "<Tab>",
     items_show_help = "?",
     -- Collections buffer
