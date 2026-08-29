@@ -15,6 +15,8 @@ local is_searching = false
 local is_trash_mode = false
 local marked_items = {}
 local show_only_marked = false
+local last_items_width = -1
+local _resize_autocmd_set = false
 
 local function sql_str(val, default)
   if type(val) ~= "string" then
@@ -69,13 +71,13 @@ end
 
 local COLUMN_DEFS = {
   ["#"] = { header = "  #", width = 4, align = "right", extract = function(item, idx) return (marked_items[item.itemID] and "*" or " ") .. tostring(idx) end },
-  key = { header = "Key", width = 12, extract = function(item) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), 12) end },
-  title = { header = "Title", width = 60, extract = function(item) return types.truncate(sql_str(item.title, "(no title)"), 60) end },
-  authors = { header = "Authors", width = 23, extract = function(item) return types.truncate(sql_str(item._authors), 23) end },
+  key = { header = "Key", width = 12, extract = function(item, idx, w) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), w or 12) end },
+  title = { header = "Title", width = 60, extract = function(item, idx, w) return types.truncate(sql_str(item.title, "(no title)"), w or 60) end },
+  authors = { header = "Authors", width = 23, extract = function(item, idx, w) return types.truncate(sql_str(item._authors), w or 23) end },
   year = { header = "Year", width = 4, extract = function(item) return (item._is_collection and item._is_collection ~= 0) and "" or ((item.year and item.year ~= vim.NIL) and tostring(item.year) or (type(item.date_str) == "string" and types.extract_year(item.date_str) or "")) end },
-  journal = { header = "Journal", width = 30, extract = function(item) return types.truncate(sql_str(item.publicationTitle), 30) end },
-  dateAdded = { header = "Added", width = 12, extract = function(item) return types.truncate(sql_str(item.dateAdded), 12) end },
-  type = { header = "Type", width = 14, extract = function(item) return types.truncate(sql_str(item.typeName), 14) end },
+  journal = { header = "Journal", width = 30, extract = function(item, idx, w) return types.truncate(sql_str(item.publicationTitle), w or 30) end },
+  dateAdded = { header = "Added", width = 12, extract = function(item, idx, w) return types.truncate(sql_str(item.dateAdded), w or 12) end },
+  type = { header = "Type", width = 14, extract = function(item, idx, w) return types.truncate(sql_str(item.typeName), w or 14) end },
 }
 
 local COLUMN_HL = {
@@ -101,6 +103,9 @@ end
 local function format_items_compact(items)
   local lines = {}
   _compact_hl_regions = {}
+
+  local win = layout.get_items_win()
+  local avail = win and vim.api.nvim_win_is_valid(win) and vim.fn.winwidth(win) or 80
 
   for idx, item in ipairs(items) do
     local author = item._authors_compact or ""
@@ -145,6 +150,10 @@ local function format_items_compact(items)
         r[1] = r[1] + 2
         r[2] = r[2] + 2
       end
+    end
+
+    if avail > 0 and vim.fn.strdisplaywidth(line) > avail then
+      line = types.truncate(line, avail)
     end
 
     table.insert(lines, line)
@@ -216,6 +225,85 @@ local function format_items_table(items)
   end
   local active_cols = get_active_columns()
 
+  local win = layout.get_items_win()
+  local available = win and vim.api.nvim_win_is_valid(win) and vim.fn.winwidth(win) or 80
+
+  local function compute_widths()
+    local widths = {}
+    for _, key in ipairs(active_cols) do
+      local def = COLUMN_DEFS[key]
+      widths[key] = (def and (def.width or 15)) or 15
+    end
+
+    local MIN = 3
+    local flex = { title = 20, authors = 12 }
+
+    local sep_total = (#active_cols - 1) * 3
+    local content_budget = math.max(0, available - sep_total)
+
+    local fixed_total = 0
+    for _, key in ipairs(active_cols) do
+      if not flex[key] then
+        fixed_total = fixed_total + (widths[key] or 0)
+      end
+    end
+
+    local function flex_total()
+      local t = 0
+      for k, v in pairs(flex) do
+        if widths[k] then
+          t = t + v
+        end
+      end
+      return t
+    end
+
+    -- Only title/authors expand or contract; the column metadata
+    -- (#, key, year, journal, dateAdded, type) keeps its fixed width.
+    if fixed_total + flex_total() <= content_budget then
+      -- wide: grow title/authors from their preferred minimum to fill
+      local surplus = content_budget - fixed_total - flex_total()
+      local w1 = (flex.title and flex.title * 2) or 0
+      local w2 = (flex.authors and flex.authors) or 0
+      local denom = w1 + w2
+      local s1 = (denom > 0) and math.floor(surplus * w1 / denom) or 0
+      local s2 = surplus - s1
+      if widths.title then
+        widths.title = flex.title + s1
+      end
+      if widths.authors then
+        widths.authors = flex.authors + s2
+      end
+    else
+      -- narrow: start from the preferred minimum and shrink title/authors
+      -- (and only them) until the table fits the window
+      for k, v in pairs(flex) do
+        if widths[k] then
+          widths[k] = v
+        end
+      end
+      local total = fixed_total + flex_total()
+      local it = 0
+      while total > content_budget and it < 200 do
+        it = it + 1
+        local shrank = false
+        for k, _ in pairs(flex) do
+          if widths[k] and widths[k] > MIN then
+            widths[k] = widths[k] - 1
+            total = total - 1
+            shrank = true
+          end
+        end
+        if not shrank then
+          break
+        end
+      end
+    end
+    return widths
+  end
+
+  local widths = compute_widths()
+
   local lines = {}
 
   local header_parts = {}
@@ -224,8 +312,8 @@ local function format_items_table(items)
     if not def then
       def = { header = key, width = 15, align = "left" }
     end
-    local hdr = def.header
-    local w = def.width
+    local w = widths[key] or (def.width or 15)
+    local hdr = types.truncate(def.header, w)
     local padded = def.align == "right" and types.pad_left(hdr, w) or types.pad_right(hdr, w)
     table.insert(header_parts, padded)
   end
@@ -242,8 +330,9 @@ local function format_items_table(items)
       if not def then
         table.insert(parts, string.rep(" ", 15))
       else
-        local val = def.extract(item, idx)
-        local padded = def.align == "right" and types.pad_left(val, def.width) or types.pad_right(val, def.width)
+        local w = widths[key] or def.width
+        local val = types.truncate(def.extract(item, idx, w), w)
+        local padded = def.align == "right" and types.pad_left(val, w) or types.pad_right(val, w)
         table.insert(parts, padded)
       end
     end
@@ -355,6 +444,9 @@ function M.fetch_and_render(refresh_collections)
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
 
   M.update_status()
+
+  local win = layout.get_items_win()
+  last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
 
   if refresh_collections then
     require("zotero.ui.collections").refresh_counts()
@@ -475,11 +567,7 @@ local function toggle_sort(field)
   M.fetch_and_render()
 end
 
-local function apply_preset(index)
-  _preset_index = index
-  _compact_hl_regions = {}
-  cursor_line = min_cursor_line()
-
+local function rerender()
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
@@ -501,6 +589,16 @@ local function apply_preset(index)
   M.apply_highlights(buf)
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
   M.update_status()
+
+  local win = layout.get_items_win()
+  last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
+end
+
+local function apply_preset(index)
+  _preset_index = index
+  _compact_hl_regions = {}
+  cursor_line = min_cursor_line()
+  rerender()
 end
 
 local function toggle_columns()
@@ -566,6 +664,9 @@ function M.show_results(results)
 
   vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
   M.update_status()
+
+  local win = layout.get_items_win()
+  last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
 end
 
 local function clear_search()
@@ -1104,6 +1205,23 @@ function M.set_keymaps()
       cursor_line = cursor[1]
     end,
   })
+
+  if not _resize_autocmd_set then
+    _resize_autocmd_set = true
+    vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+      callback = function()
+        local win = layout.get_items_win()
+        if not win or not vim.api.nvim_win_is_valid(win) then
+          return
+        end
+        local w = vim.api.nvim_win_get_width(win)
+        if w ~= last_items_width then
+          last_items_width = w
+          rerender()
+        end
+      end,
+    })
+  end
 end
 
 function M.show_help()
@@ -1163,6 +1281,10 @@ function M.get_marked_count()
     count = count + 1
   end
   return count
+end
+
+function M.rerender()
+  rerender()
 end
 
 return M

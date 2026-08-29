@@ -190,6 +190,8 @@ function M.toggle_collections()
     apply_statuscolumn(state.collections_win)
     require("zotero.ui.collections").render()
   end
+
+  require("zotero.ui.items").rerender()
 end
 
 function M.close()
