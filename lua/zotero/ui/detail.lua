@@ -288,11 +288,11 @@ function M.show_item(item_id)
 
   vim.keymap.set("n", "q", function()
     M.close()
-  end, { buffer = float_buf, silent = true, nowait = true, desc = "zotero: close detail" })
+  end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
 
   vim.keymap.set("n", "<Esc>", function()
     M.close()
-  end, { buffer = float_buf, silent = true, nowait = true, desc = "zotero: close detail" })
+  end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
 
   vim.api.nvim_create_autocmd("WinClosed", {
     buffer = float_buf,

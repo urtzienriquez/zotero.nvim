@@ -279,37 +279,37 @@ function M.set_keymaps()
 
   map("n", "collections_move_down", function()
     move_cursor(vim.v.count1)
-  end, "zotero: move down")
+  end, "move down")
 
   map("n", "collections_move_up", function()
     move_cursor(-vim.v.count1)
-  end, "zotero: move up")
+  end, "move up")
 
   map("n", "collections_move_down_alt", function()
     move_cursor(vim.v.count1)
-  end, "zotero: move down")
+  end, "move down")
 
   map("n", "collections_move_up_alt", function()
     move_cursor(-vim.v.count1)
-  end, "zotero: move up")
+  end, "move up")
 
   map("n", "collections_next_section", function()
     jump_section(1)
-  end, "zotero: next section")
+  end, "next section")
 
   map("n", "collections_prev_section", function()
     jump_section(-1)
-  end, "zotero: prev section")
+  end, "prev section")
 
-  map("n", "collections_select", on_enter, "zotero: select collection")
+  map("n", "collections_select", on_enter, "select collection")
 
   map("n", "collections_toggle_pane", function()
     layout.toggle_collections()
-  end, "zotero: toggle collections pane")
+  end, "toggle collections pane")
 
   map("n", "collections_focus_items", function()
     layout.focus_items()
-  end, "zotero: focus items")
+  end, "focus items")
 
   map("n", "collections_new", function()
     local entry = M.get_collection_at_line(cursor_line)
@@ -328,7 +328,7 @@ function M.set_keymaps()
         M.refresh_counts()
       end
     end)
-  end, "zotero: create collection")
+  end, "create collection")
 
   map("n", "collections_delete", function()
     local entry = M.get_collection_at_line(cursor_line)
@@ -350,7 +350,7 @@ function M.set_keymaps()
       vim.notify("zotero: trashed collection '" .. name .. "'", vim.log.levels.INFO)
       M.refresh_counts()
     end
-  end, "zotero: trash collection")
+  end, "trash collection")
 end
 
 function M.get_selected_collection_id()

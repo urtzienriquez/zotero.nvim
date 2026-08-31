@@ -96,13 +96,13 @@ function M.setup(opts)
   if cfg.keymaps.enabled and cfg.keymaps.open_library then
     vim.keymap.set("n", cfg.keymaps.open_library, function()
       M.open_library()
-    end, { desc = "zotero: open library browser" })
+    end, { desc = "toggle library browser" })
   end
 
   if cfg.keymaps.enabled and cfg.keymaps.fuzzy_find then
     vim.keymap.set("n", cfg.keymaps.fuzzy_find, function()
       M.fuzzy_find()
-    end, { desc = "zotero: search items" })
+    end, { desc = "search items" })
   end
 end
 

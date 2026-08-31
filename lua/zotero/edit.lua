@@ -106,7 +106,7 @@ function M.open_edit(item_id)
   -- <leader>zs to save
   vim.keymap.set("n", "<leader>zs", function()
     M.save_edit(buf_id)
-  end, { buffer = buf, silent = true, desc = "zotero: save changes" })
+  end, { buffer = buf, silent = true, desc = "save changes" })
 
   -- q to close
   vim.keymap.set("n", "q", function()
@@ -115,7 +115,7 @@ function M.open_edit(item_id)
       vim.api.nvim_set_current_win(pw)
     end
     vim.api.nvim_buf_delete(buf_id, { force = true })
-  end, { buffer = buf, silent = true, desc = "zotero: close editor" })
+  end, { buffer = buf, silent = true, desc = "close editor" })
 
   -- ? to show available fields and item types
   vim.keymap.set("n", "?", function()
@@ -137,7 +137,7 @@ function M.open_edit(item_id)
     help_text = help_text .. "\n\nAvailable item types:\n" .. table.concat(type_names, "\n")
 
     vim.notify(help_text, vim.log.levels.INFO, { title = "zotero: fields" })
-  end, { buffer = buf, silent = true, desc = "zotero: show available fields and types" })
+  end, { buffer = buf, silent = true, desc = "show available fields and types" })
 
   -- <leader>zk to regenerate Better BibTeX citation key
   vim.keymap.set("n", "<leader>zk", function()
@@ -151,7 +151,7 @@ function M.open_edit(item_id)
         fill_buffer(buf_id, new_data, vim.b[buf_id].zotero_item_id)
       end
     end
-  end, { buffer = buf, silent = true, desc = "zotero: regenerate citation key" })
+  end, { buffer = buf, silent = true, desc = "regenerate citation key" })
 
   vim.api.nvim_win_set_height(win, math.min(#vim.api.nvim_buf_get_lines(buf, 0, -1, false) + 2, 25))
 end

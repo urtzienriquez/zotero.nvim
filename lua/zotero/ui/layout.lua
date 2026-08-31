@@ -120,7 +120,7 @@ function M.set_keymaps()
       if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
         vim.api.nvim_set_current_win(state.items_win)
       end
-    end, { buffer = collections_buf, silent = true, nowait = true, desc = "zotero: focus items" })
+    end, { buffer = collections_buf, silent = true, nowait = true, desc = "focus items" })
   end
 
   local toggle_lhs = km.toggle_statuscolumn
@@ -130,7 +130,7 @@ function M.set_keymaps()
         buffer = buf,
         silent = true,
         nowait = true,
-        desc = "zotero: toggle statuscolumn",
+        desc = "toggle statuscolumn",
       })
     end
   end
