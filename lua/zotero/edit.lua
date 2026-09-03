@@ -348,6 +348,7 @@ function M.save_edit(bufnr)
 
     -- Refresh items list
     local items = require("zotero.ui.items")
+    require("zotero.db").invalidate_cache()
     if items.fetch_and_render then
       items.fetch_and_render()
     end

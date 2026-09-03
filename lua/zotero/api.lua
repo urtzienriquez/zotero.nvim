@@ -20,6 +20,7 @@ function M.ping()
 end
 
 function M.update_item(item_key, updates)
+  require("zotero.db").invalidate_cache()
   local payload = vim.fn.json_encode({
     itemKey = item_key,
     updates = updates,
@@ -59,6 +60,7 @@ function M.update_item(item_key, updates)
 end
 
 function M.regenerate_key(item_key)
+  require("zotero.db").invalidate_cache()
   local payload = vim.fn.json_encode({ itemKey = item_key })
 
   local res = vim.fn.system({
@@ -93,6 +95,7 @@ function M.regenerate_key(item_key)
 end
 
 function M.create_item(item_type, fields, creators, tags)
+  require("zotero.db").invalidate_cache()
   if not item_type then
     vim.notify("zotero: no item type provided", vim.log.levels.ERROR)
     return nil
@@ -142,6 +145,7 @@ function M.create_item(item_type, fields, creators, tags)
 end
 
 function M.fix_attachment_with_doi(attachment_item, doi)
+  require("zotero.db").invalidate_cache()
   if not attachment_item or not doi then
     vim.notify("zotero: missing attachment item or DOI", vim.log.levels.ERROR)
     return false
@@ -250,6 +254,7 @@ function M.set_date_modified(item_key, date_modified)
 end
 
 function M.update_item_from_identifier(item_key, identifier)
+  require("zotero.db").invalidate_cache()
   if not item_key or not identifier then
     vim.notify("zotero: missing item key or identifier", vim.log.levels.ERROR)
     return false
@@ -287,6 +292,7 @@ function M.update_item_from_identifier(item_key, identifier)
 end
 
 function M.add_attachment(item_key, file_path)
+  require("zotero.db").invalidate_cache()
   local payload = vim.fn.json_encode({
     itemKey = item_key,
     filePath = file_path,
@@ -572,6 +578,7 @@ local function check_duplicates_after_import(filename, new_key)
 end
 
 function M.add_by_identifier(identifier, collection_key)
+  require("zotero.db").invalidate_cache()
   if not identifier or identifier == "" then
     vim.notify("zotero: no identifier provided", vim.log.levels.ERROR)
     return false
@@ -634,6 +641,7 @@ function M.add_by_identifier(identifier, collection_key)
 end
 
 function M.delete_item(item_key)
+  require("zotero.db").invalidate_cache()
   if not item_key or item_key == "" then
     vim.notify("zotero: no item key provided", vim.log.levels.ERROR)
     return false
@@ -669,6 +677,7 @@ function M.delete_item(item_key)
 end
 
 function M.erase_item(item_key)
+  require("zotero.db").invalidate_cache()
   if not item_key or item_key == "" then
     vim.notify("zotero: no item key provided", vim.log.levels.ERROR)
     return false
@@ -704,6 +713,7 @@ function M.erase_item(item_key)
 end
 
 function M.delete_items(item_keys)
+  require("zotero.db").invalidate_cache()
   if not item_keys or #item_keys == 0 then
     return false
   end
@@ -738,6 +748,7 @@ function M.delete_items(item_keys)
 end
 
 function M.erase_items(item_keys, collection_keys)
+  require("zotero.db").invalidate_cache()
   if (not item_keys or #item_keys == 0) and (not collection_keys or #collection_keys == 0) then
     return false
   end
@@ -780,6 +791,7 @@ function M.erase_items(item_keys, collection_keys)
 end
 
 function M.create_collection(name, parent_collection_key)
+  require("zotero.db").invalidate_cache()
   if not name or name == "" then
     vim.notify("zotero: no name provided", vim.log.levels.ERROR)
     return false
@@ -820,6 +832,7 @@ function M.create_collection(name, parent_collection_key)
 end
 
 function M.add_to_collection(item_key, collection_key)
+  require("zotero.db").invalidate_cache()
   if not item_key or not collection_key then
     vim.notify("zotero: missing item key or collection key", vim.log.levels.ERROR)
     return false
@@ -855,6 +868,7 @@ function M.add_to_collection(item_key, collection_key)
 end
 
 function M.trash_collection(collection_key)
+  require("zotero.db").invalidate_cache()
   if not collection_key or collection_key == "" then
     vim.notify("zotero: no collection key provided", vim.log.levels.ERROR)
     return false
@@ -890,6 +904,7 @@ function M.trash_collection(collection_key)
 end
 
 function M.erase_collection(collection_key)
+  require("zotero.db").invalidate_cache()
   if not collection_key or collection_key == "" then
     vim.notify("zotero: no collection key provided", vim.log.levels.ERROR)
     return false
@@ -925,6 +940,7 @@ function M.erase_collection(collection_key)
 end
 
 function M.merge_items(item_key, other_keys)
+  require("zotero.db").invalidate_cache()
   if not item_key or not other_keys or #other_keys == 0 then
     vim.notify("zotero: missing item key or other keys for merge", vim.log.levels.ERROR)
     return false
@@ -964,6 +980,7 @@ function M.merge_items(item_key, other_keys)
 end
 
 function M.import_pdf(path, collection_key)
+  require("zotero.db").invalidate_cache()
   if vim.fn.filereadable(path) ~= 1 then
     vim.notify("zotero: file not found: " .. path, vim.log.levels.ERROR)
     return false

@@ -42,13 +42,15 @@ end
 --- Generate a cache key scoped to the current DB file version. Queries are
 --- cached against this key and are only valid while the DB mtime is unchanged.
 local function cache_key(spec)
-  if db_last_mtime == nil then
-    get_db()
-  end
+  get_db()
   return tostring(db_last_mtime) .. "|" .. spec
 end
 
 local function cache_get(key)
+  -- Always re-check the live DB mtime so a change invalidates cached results
+  -- even if invalidate_cache() wasn't explicitly called (e.g. writes made
+  -- outside the plugin, or ordering of refresh vs. query).
+  get_db()
   if _cache_mtime ~= db_last_mtime then
     _cache = {}
     _cache_mtime = db_last_mtime
@@ -61,6 +63,7 @@ local function cache_get(key)
 end
 
 local function cache_set(key, value)
+  get_db()
   if _cache_mtime ~= db_last_mtime then
     _cache = {}
     _cache_mtime = db_last_mtime

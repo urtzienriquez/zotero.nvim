@@ -408,6 +408,9 @@ function M.restore_session()
 end
 
 function M.fetch_and_render(refresh_collections)
+  if refresh_collections then
+    require("zotero.db").invalidate_cache()
+  end
   local limit = show_only_marked and 100000 or nil
   local items
   if is_trash_mode then
@@ -449,7 +452,6 @@ function M.fetch_and_render(refresh_collections)
   last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
 
   if refresh_collections then
-    require("zotero.db").invalidate_cache()
     require("zotero.ui.collections").refresh_counts()
   end
 end
