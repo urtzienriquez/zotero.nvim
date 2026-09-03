@@ -352,6 +352,24 @@ function M.set_keymaps()
       M.refresh_counts()
     end
   end, "trash collection")
+
+  map("n", "collections_show_help", M.show_help, "help")
+end
+
+function M.show_help()
+  vim.notify(table.concat({
+    "zotero.nvim - Collections",
+    "─────────────────────────",
+    "  j/k           Navigate",
+    "  <Up>/<Down>   Navigate (alternative)",
+    "  ]] / [[       Next / prev section",
+    "  <CR>          Select collection / Trash",
+    "  <Tab>         Focus items pane",
+    "  <leader>zt    Toggle collections pane",
+    "  <leader>zN    Create collection",
+    "  <leader>zD    Trash collection",
+    "  g?            This help",
+  }, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end
 
 function M.get_selected_collection_id()

@@ -117,8 +117,8 @@ function M.open_edit(item_id)
     vim.api.nvim_buf_delete(buf_id, { force = true })
   end, { buffer = buf, silent = true, desc = "close editor" })
 
-  -- ? to show available fields and item types
-  vim.keymap.set("n", "?", function()
+  -- g? to show available fields and item types
+  vim.keymap.set("n", "g?", function()
     local item_type_id = vim.b[buf_id].zotero_item_type_id
     local type_name = vim.b[buf_id].zotero_item_type_name or "unknown"
     local fields = db.get_item_type_fields(item_type_id)

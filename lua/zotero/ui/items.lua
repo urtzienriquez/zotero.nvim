@@ -1232,15 +1232,6 @@ function M.show_help()
     "zotero.nvim - Zotero Library Browser",
     "──────────────────────────────────────",
     "",
-    "Collections Pane:",
-    "  j/k           Navigate",
-    "  ]] / [[       Next / prev section",
-    "  <CR>          Select collection / Trash",
-    "  <Tab>         Focus items pane",
-    "  <leader>zt    Toggle collections pane",
-    "  <leader>zN    Create collection",
-    "  <leader>zD    Trash collection",
-    "",
     "Items Pane:",
     "  j/k           Navigate",
     "  <CR>          Show item detail",
@@ -1268,7 +1259,7 @@ function M.show_help()
     "  <leader>zf    Fuzzy search (opens fzf/telescope picker)",
     "  <leader>zc    Clear search filter",
     "General:",
-    "  ?             This help",
+    "  g?            This help",
   }
   vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end

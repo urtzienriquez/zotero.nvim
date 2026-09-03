@@ -114,7 +114,7 @@ CONFIGURATION                                            *zotero-config*
         items_show_only_marked   = "<leader>zl",
         toggle_statuscolumn      = "<leader>zg",
         items_focus_collections  = "<Tab>",
-        items_show_help          = "?",
+        items_show_help          = "g?",
 
         -- Collections pane keymaps
         collections_move_down       = "j",
@@ -127,6 +127,7 @@ CONFIGURATION                                            *zotero-config*
         collections_new             = "<leader>zN",
         collections_delete          = "<leader>zD",
         collections_focus_items_esc = "<Esc>",
+        collections_show_help       = "g?",
       },
 
       -- Initial sort column: "dateAdded", "year", "title"
@@ -163,7 +164,7 @@ the edit buffer (opened with |<leader>ze| on an item):
 
   - :ZoteroSave            Save changes to Zotero
   - <leader>zs             Save changes to Zotero (alternative)
-  - ?                      List available field names for the item type
+  - g?                     List available field names for the item type
   - <leader>zk             Regenerate Better BibTeX citation key
   - q                      Close editor
 
@@ -207,7 +208,7 @@ Detail Panel~
 
 Edit Buffer~
   Opened with |<leader>ze| on an item. Edit the JSON representation,
-  then type |:ZoteroSave| or press |<leader>zs| to save. Press |?|
+  then type |:ZoteroSave| or press |<leader>zs| to save. Press |g?|
   to see valid field names. Press |<leader>zk| to regenerate the
   Better BibTeX citation key.
 
@@ -226,6 +227,7 @@ Collections Pane~
   <leader>zt      Toggle collections pane
   <leader>zN      Create new collection
   <leader>zD      Trash selected collection
+  g?              Show help
 
 Items Pane~
   j / k           Navigate up/down
@@ -250,12 +252,12 @@ Items Pane~
   <Tab>           Focus collections pane
   <leader>zm      Toggle mark on item
   <leader>zl      Show only marked items
-  ?               Show help
+  g?              Show help
 
 Edit Buffer~
   :ZoteroSave     Save changes to Zotero
   <leader>zs      Save changes (alternative)
-  ?               Show available field names
+  g?              Show available field names
   <leader>zk      Regenerate Better BibTeX citation key
   q               Close editor
 

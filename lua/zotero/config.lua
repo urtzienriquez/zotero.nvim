@@ -35,7 +35,7 @@ M.defaults = {
     items_show_only_marked   = "<leader>zl",
     toggle_statuscolumn = "<leader>zg",
     items_focus_collections = "<Tab>",
-    items_show_help = "?",
+    items_show_help = "g?",
     -- Collections buffer
     collections_move_down = "j",
     collections_move_up = "k",
@@ -49,6 +49,7 @@ M.defaults = {
     collections_new = "<leader>zN",
     collections_delete = "<leader>zD",
     collections_focus_items_esc = "<Esc>",
+    collections_show_help = "g?",
   },
   default_sort = "dateAdded",
   default_sort_dir = "desc",

@@ -119,7 +119,7 @@ require("zotero").setup({
     items_show_only_marked   = "<leader>zl",
     toggle_statuscolumn      = "<leader>zg",
     items_focus_collections  = "<Tab>",
-    items_show_help          = "?",
+    items_show_help          = "g?",
 
     -- Collections pane keymaps
     collections_move_down       = "j",
@@ -132,6 +132,7 @@ require("zotero").setup({
     collections_new             = "<leader>zN",
     collections_delete          = "<leader>zD",
     collections_focus_items_esc = "<Esc>",
+    collections_show_help       = "g?",
   },
 })
 ```
@@ -160,6 +161,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zt` | Toggle collections pane                                    |
 | `<leader>zN` | Create new collection                                      |
 | `<leader>zD` | Trash selected collection                                  |
+| `g?`         | Show help popup                                            |
 
 ### Items Pane
 
@@ -187,14 +189,14 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zl` | Show only marked items                                |
 | `<leader>zg` | Toggle statuscolumn (signcolumn, numbers)             |
 | `<Tab>`      | Focus collections pane                                |
-| `?`          | Show help popup                                       |
+| `g?`         | Show help popup                                       |
 
 ### Edit Buffer
 
 | Key                          | Action                                |
 | ---------------------------- | ------------------------------------- |
 | `:ZoteroSave` / `<leader>zs` | Save changes to Zotero                |
-| `?`                          | List available fields for item type   |
+| `g?`                         | List available fields for item type   |
 | `<leader>zk`                 | Regenerate Better BibTeX citation key |
 | `q`                          | Close editor                          |
 
