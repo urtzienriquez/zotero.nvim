@@ -176,7 +176,7 @@ Open the Zotero library browser with:
 
 Or use the default keymap: |zotero-keymaps|
 
-The browser opens in a split layout:
+The browser opens in its own tab, with a split layout:
 
 >ascii
   ┌──────────────┬──────────────────────────────────────┐
@@ -275,7 +275,7 @@ setup({opts})~
 
                                               *zotero-open_library()*
 open_library()~
-  Open the Zotero library browser in a split layout.
+  Open the Zotero library browser in a new tab with a split layout.
 
                                                 *zotero-fuzzy_find()*
 fuzzy_find()~

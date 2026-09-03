@@ -9,7 +9,6 @@ local state = {
   items_win = nil,
   tabpage = nil,
   is_open = false,
-  original_buf = nil,
 }
 
 local collections_hidden = false
@@ -65,10 +64,18 @@ function M.create_layout()
   local total_width = vim.o.columns
   local collections_width = math.max(25, math.floor(total_width * 0.2))
 
-  -- use current window as items pane
+  -- open in a dedicated new tab
+  vim.cmd("tabnew")
   local items_win = vim.api.nvim_get_current_win()
-  state.original_buf = vim.api.nvim_win_get_buf(items_win)
+  local scratch_buf = vim.api.nvim_win_get_buf(items_win)
   vim.api.nvim_win_set_buf(items_win, items_buf)
+  -- tabnew leaves an empty [No Name] buffer behind; drop it so it doesn't
+  -- linger as a listed buffer (e.g. in fzf-lua)
+  if scratch_buf ~= items_buf and vim.api.nvim_buf_is_valid(scratch_buf)
+      and vim.api.nvim_buf_get_name(scratch_buf) == "" then
+    pcall(vim.api.nvim_buf_delete, scratch_buf, { force = true })
+  end
+  local tabpage = vim.api.nvim_win_get_tabpage(items_win)
   vim.wo[items_win].wrap = false
   vim.wo[items_win].spell = false
   vim.wo[items_win].cursorline = true
@@ -86,8 +93,6 @@ function M.create_layout()
     vim.wo[collections_win].cursorline = true
     apply_statuscolumn(collections_win)
   end
-
-  local tabpage = vim.api.nvim_win_get_tabpage(items_win)
 
   state.collections_buf = collections_buf
   state.items_buf = items_buf
@@ -165,7 +170,29 @@ function M.focus_items()
 end
 
 function M.is_open()
-  return state.is_open
+  if not state.is_open then
+    return false
+  end
+  -- The state can go stale if the tab was closed externally (e.g. :q). Detect
+  -- that, delete any leftover zotero buffers, and clear out the stale handles
+  -- so the next open starts fresh.
+  local tab_ok = state.tabpage and vim.api.nvim_tabpage_is_valid(state.tabpage)
+  local buf_ok = state.items_buf and vim.api.nvim_buf_is_valid(state.items_buf)
+  if not (tab_ok and buf_ok) then
+    for _, b in ipairs({ state.collections_buf, state.items_buf }) do
+      if b and vim.api.nvim_buf_is_valid(b) then
+        pcall(vim.api.nvim_buf_delete, b, { force = true })
+      end
+    end
+    state.collections_buf = nil
+    state.items_buf = nil
+    state.collections_win = nil
+    state.items_win = nil
+    state.tabpage = nil
+    state.is_open = false
+    return false
+  end
+  return true
 end
 
 function M.toggle_collections()
@@ -203,47 +230,15 @@ function M.close()
     return b and vim.api.nvim_buf_is_valid(b)
   end
 
-  local function win_valid(w)
-    return w and vim.api.nvim_win_is_valid(w)
+  local tabpage = state.tabpage
+
+  -- return to the previous tab (Zotero always opens in its own new tab)
+  vim.cmd("tabprevious")
+  if tabpage and vim.api.nvim_tabpage_is_valid(tabpage) then
+    pcall(vim.api.nvim_tabpage_close, tabpage)
   end
 
-  if state.tabpage and vim.api.nvim_tabpage_is_valid(state.tabpage) then
-    vim.api.nvim_set_current_tabpage(state.tabpage)
-  end
-
-  local zotero_buffers = {}
-  if buf_valid(state.collections_buf) then
-    table.insert(zotero_buffers, state.collections_buf)
-  end
-  if buf_valid(state.items_buf) then
-    table.insert(zotero_buffers, state.items_buf)
-  end
-
-  if win_valid(state.collections_win) then
-    pcall(vim.api.nvim_win_close, state.collections_win, true)
-  end
-
-  if win_valid(state.items_win) then
-    local tp = vim.api.nvim_win_get_tabpage(state.items_win)
-    local all_wins = vim.api.nvim_tabpage_list_wins(tp)
-    local normal_wins = 0
-    for _, w in ipairs(all_wins) do
-      local cfg = vim.api.nvim_win_get_config(w)
-      if not cfg.relative or cfg.relative == "" then
-        normal_wins = normal_wins + 1
-      end
-    end
-    if normal_wins <= 1 then
-      local target = state.original_buf and vim.api.nvim_buf_is_valid(state.original_buf)
-          and state.original_buf
-        or vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_win_set_buf(state.items_win, target)
-    else
-      pcall(vim.api.nvim_win_close, state.items_win, true)
-    end
-  end
-
-  for _, buf in ipairs(zotero_buffers) do
+  for _, buf in ipairs({ state.collections_buf, state.items_buf }) do
     if buf_valid(buf) then
       vim.api.nvim_buf_delete(buf, { force = true })
     end
@@ -254,7 +249,6 @@ function M.close()
   state.collections_win = nil
   state.items_win = nil
   state.tabpage = nil
-  state.original_buf = nil
   state.is_open = false
 end
 

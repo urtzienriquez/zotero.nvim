@@ -14,6 +14,12 @@ end
 local db_copy = nil
 local db_last_mtime = nil
 
+-- Result cache, keyed on the DB file mtime so it auto-invalidates when Zotero
+-- writes to the database. Cleared explicitly via invalidate_cache() on
+-- in-plugin writes/refreshes (see get_db()/cache_key()).
+local _cache = {}
+local _cache_mtime = nil
+
 local function get_db()
   local path = cfg().db_path
   if not path then
@@ -31,6 +37,40 @@ local function get_db()
     db_last_mtime = mtime
   end
   return db_copy
+end
+
+--- Generate a cache key scoped to the current DB file version. Queries are
+--- cached against this key and are only valid while the DB mtime is unchanged.
+local function cache_key(spec)
+  if db_last_mtime == nil then
+    get_db()
+  end
+  return tostring(db_last_mtime) .. "|" .. spec
+end
+
+local function cache_get(key)
+  if _cache_mtime ~= db_last_mtime then
+    _cache = {}
+    _cache_mtime = db_last_mtime
+  end
+  local v = _cache[key]
+  if v ~= nil then
+    return v, true
+  end
+  return nil, false
+end
+
+local function cache_set(key, value)
+  if _cache_mtime ~= db_last_mtime then
+    _cache = {}
+    _cache_mtime = db_last_mtime
+  end
+  _cache[key] = value
+end
+
+function M.invalidate_cache()
+  _cache = {}
+  _cache_mtime = nil
 end
 
 local function json_query(sql)
@@ -194,15 +234,27 @@ local function not_trashed()
 end
 
 function M.get_stats()
+  local key = cache_key("stats")
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
   local collections = raw_query("SELECT COUNT(*) FROM collections")
   local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)")
-  return {
+  local result = {
     collections = tonumber(collections) or 0,
     items = tonumber(items) or 0,
   }
+  cache_set(key, result)
+  return result
 end
 
 function M.get_collections()
+  local key = cache_key("collections")
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
   local sql = [[
     WITH RECURSIVE col_tree AS (
       SELECT
@@ -244,7 +296,9 @@ function M.get_collections()
     LEFT JOIN item_counts ic ON ct.collectionID = ic.collectionID
     ORDER BY ct.path COLLATE NOCASE
   ]]
-  return json_query(sql)
+  local result = json_query(sql)
+  cache_set(key, result)
+  return result
 end
 
 function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override)
@@ -353,7 +407,15 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     LIMIT ]] .. tostring(limit) .. [[
   ]]
 
-  return json_query(sql)
+  local key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
+    .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
+  local result = json_query(sql)
+  cache_set(key, result)
+  return result
 end
 
 function M.get_trash_items(sort_by, sort_dir, limit_override)
@@ -434,13 +496,27 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
     LIMIT ]] .. tostring(limit) .. [[
   ]]
 
-  return json_query(sql)
+  local key = cache_key("trash|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
+  local result = json_query(sql)
+  cache_set(key, result)
+  return result
 end
 
 function M.get_trash_count()
+  local key = cache_key("trash_count")
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
   local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE (" .. not_child("i") .. ")")
   local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections")
-  return (tonumber(item_count) or 0) + (tonumber(col_count) or 0)
+  local result = (tonumber(item_count) or 0) + (tonumber(col_count) or 0)
+  cache_set(key, result)
+  return result
 end
 
 function M.get_item_authors(item_id)
@@ -468,7 +544,14 @@ function M.get_items_authors(item_ids)
     WHERE ic.itemID IN (]] .. ids .. [[)
     ORDER BY ic.itemID, ic.orderIndex
   ]]
-  return json_query(sql)
+  local key = cache_key("authors|" .. ids)
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
+  local result = json_query(sql)
+  cache_set(key, result)
+  return result
 end
 
 function M.get_item_metadata(item_id)

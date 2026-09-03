@@ -157,6 +157,7 @@ function M.apply_highlights(buf)
 end
 
 function M.refresh_counts()
+  require("zotero.db").invalidate_cache()
   collections_data = db.get_collections()
   local stats = db.get_stats()
   total_item_count = stats.items
