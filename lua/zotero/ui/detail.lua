@@ -1,6 +1,7 @@
 local M = {}
 
 local db = require("zotero.db")
+local async_mod = require("zotero.async")
 
 local float_win = nil
 local float_buf = nil
@@ -77,7 +78,8 @@ local function resolve_path(attachment)
     return nil
   end
 
-  local storage_dir = vim.fn.expand("~") .. "/Zotero/storage"
+  local home = vim.uv.os_homedir()
+  local storage_dir = home .. "/Zotero/storage"
   local full_path = nil
 
   if path:find("^storage:") then
@@ -96,7 +98,7 @@ local function resolve_path(attachment)
     end
   elseif path:find("^attachments:") then
     local rel = path:sub(13)
-    full_path = vim.fn.expand("~") .. "/Zotero/" .. rel
+    full_path = home .. "/Zotero/" .. rel
     if vim.fn.filereadable(full_path) == 0 then
       full_path = nil
     end
@@ -116,198 +118,204 @@ function M.show_item(item_id)
   M.close()
 
   current_item_id = item_id
-  local detail = db.get_item_detail(item_id)
-  local metadata = detail.metadata or {}
 
-  local lines = {}
-
-  table.insert(lines, "")
-  table.insert(lines, "  " .. sanitize(metadata.title or "(no title)"))
-  table.insert(lines, "")
-
-  if detail.authors and #detail.authors > 0 then
-    local author_names = {}
-    for _, a in ipairs(detail.authors) do
-      local name = a.fieldMode == 0
-        and ((a.firstName or "") .. " " .. (a.lastName or ""))
-        or (a.lastName or "")
-      table.insert(author_names, name)
+  async_mod.run("zotero:ui.detail.show", function()
+    local detail = async_mod.await(db.get_item_detail(item_id))
+    local metadata = detail.metadata or {}
+    local type_id = async_mod.await(db.get_item_type_id(item_id))
+    local type_name = nil
+    if type_id then
+      type_name = async_mod.await(db.get_item_type_name(type_id))
     end
-    table.insert(lines, "  Authors:  " .. table.concat(author_names, "; "))
-  end
 
-  local citation_key = metadata.citationKey
-  if citation_key and citation_key ~= "" then
-    table.insert(lines, "  Key:      @" .. citation_key)
-  end
+    local lines = {}
 
-  local type_id = db.get_item_type_id(item_id)
-  if type_id then
-    local type_name = db.get_item_type_name(type_id)
+    table.insert(lines, "")
+    table.insert(lines, "  " .. sanitize(metadata.title or "(no title)"))
+    table.insert(lines, "")
+
+    if detail.authors and #detail.authors > 0 then
+      local author_names = {}
+      for _, a in ipairs(detail.authors) do
+        local name = a.fieldMode == 0
+          and ((a.firstName or "") .. " " .. (a.lastName or ""))
+          or (a.lastName or "")
+        table.insert(author_names, name)
+      end
+      table.insert(lines, "  Authors:  " .. table.concat(author_names, "; "))
+    end
+
+    local citation_key = metadata.citationKey
+    if citation_key and citation_key ~= "" then
+      table.insert(lines, "  Key:      @" .. citation_key)
+    end
+
     if type_name and type_name ~= "" then
       table.insert(lines, "  Type:     " .. type_name)
     end
-  end
 
-  table.insert(lines, "")
-  table.insert(lines, "  " .. string.rep("─", 60))
-  table.insert(lines, "")
-
-  local ordered_fields = {
-    "publicationTitle", "bookTitle", "proceedingsTitle", "encyclopediaTitle",
-    "dictionaryTitle", "series", "seriesNumber", "seriesTitle", "shortTitle",
-    "volume", "issue", "pages", "publisher", "place", "edition", "date",
-    "DOI", "ISBN", "ISSN", "url", "accessDate",
-    "archive", "archiveLocation", "libraryCatalog", "callNumber",
-    "university", "institution", "thesisType",
-    "reportType", "reportNumber",
-    "patentNumber", "assignee", "issuingAuthority", "filingDate", "issueDate",
-    "court", "caseName", "dateDecided", "docketNumber", "reporter", "reporterVolume", "firstPage",
-    "websiteTitle", "blogTitle", "programTitle", "network", "episodeNumber",
-    "conferenceName", "section",
-    "language", "rights", "extra", "PMID", "PMCID",
-    "label", "manuscriptType", "mapType", "letterType", "audioFileType", "numPages",
-  }
-
-  for _, field in ipairs(ordered_fields) do
-    local val = metadata[field]
-    if val and val ~= "" then
-      local label = PRIORITY_FIELDS[field] or field
-      table.insert(lines, "  " .. label .. ":  " .. sanitize(val))
-    end
-  end
-
-  local abstract = metadata.abstractNote
-  if abstract and abstract ~= "" then
     table.insert(lines, "")
-    table.insert(lines, "  Abstract:")
-    local cleaned = abstract:gsub("\r\n?", "\n")
-    for _, a_line in ipairs(vim.split(cleaned, "\n")) do
-      local trimmed = a_line:gsub("^%s+", "")
-      if trimmed ~= "" then
-        local wrapped = M.wrap_text(trimmed, 56)
-        for _, wline in ipairs(wrapped) do
-          table.insert(lines, "    " .. wline)
+    table.insert(lines, "  " .. string.rep("─", 60))
+    table.insert(lines, "")
+
+    local ordered_fields = {
+      "publicationTitle", "bookTitle", "proceedingsTitle", "encyclopediaTitle",
+      "dictionaryTitle", "series", "seriesNumber", "seriesTitle", "shortTitle",
+      "volume", "issue", "pages", "publisher", "place", "edition", "date",
+      "DOI", "ISBN", "ISSN", "url", "accessDate",
+      "archive", "archiveLocation", "libraryCatalog", "callNumber",
+      "university", "institution", "thesisType",
+      "reportType", "reportNumber",
+      "patentNumber", "assignee", "issuingAuthority", "filingDate", "issueDate",
+      "court", "caseName", "dateDecided", "docketNumber", "reporter", "reporterVolume", "firstPage",
+      "websiteTitle", "blogTitle", "programTitle", "network", "episodeNumber",
+      "conferenceName", "section",
+      "language", "rights", "extra", "PMID", "PMCID",
+      "label", "manuscriptType", "mapType", "letterType", "audioFileType", "numPages",
+    }
+
+    for _, field in ipairs(ordered_fields) do
+      local val = metadata[field]
+      if val and val ~= "" then
+        local label = PRIORITY_FIELDS[field] or field
+        table.insert(lines, "  " .. label .. ":  " .. sanitize(val))
+      end
+    end
+
+    local abstract = metadata.abstractNote
+    if abstract and abstract ~= "" then
+      table.insert(lines, "")
+      table.insert(lines, "  Abstract:")
+      local cleaned = abstract:gsub("\r\n?", "\n")
+      for _, a_line in ipairs(vim.split(cleaned, "\n")) do
+        local trimmed = a_line:gsub("^%s+", "")
+        if trimmed ~= "" then
+          local wrapped = M.wrap_text(trimmed, 56)
+          for _, wline in ipairs(wrapped) do
+            table.insert(lines, "    " .. wline)
+          end
         end
       end
     end
-  end
 
-  if detail.tags and #detail.tags > 0 then
-    table.insert(lines, "")
-    table.insert(lines, "  Tags:  " .. table.concat(
-      vim.tbl_map(function(t) return "#" .. t.name end, detail.tags), "  "
-    ))
-  end
-
-  if detail.notes and #detail.notes > 0 then
-    table.insert(lines, "")
-    table.insert(lines, "  " .. string.rep("─", 60))
-    table.insert(lines, "  Notes (" .. tostring(#detail.notes) .. "):")
-    for _, note in ipairs(detail.notes) do
+    if detail.tags and #detail.tags > 0 then
       table.insert(lines, "")
-      table.insert(lines, "    " .. (note.title or "Note"))
-      if note.note then
-        local plain = note.note:gsub("<[^>]+>", "")
-        local cleaned = plain:gsub("\r\n?", "\n")
-        for _, n_line in ipairs(vim.split(cleaned, "\n")) do
-          local trimmed = n_line:gsub("^%s+", "")
-          if trimmed ~= "" then
-            local wrapped = M.wrap_text(trimmed, 52)
-            for _, wline in ipairs(wrapped) do
-              table.insert(lines, "      " .. wline)
+      table.insert(lines, "  Tags:  " .. table.concat(
+        vim.tbl_map(function(t) return "#" .. t.name end, detail.tags), "  "
+      ))
+    end
+
+    if detail.notes and #detail.notes > 0 then
+      table.insert(lines, "")
+      table.insert(lines, "  " .. string.rep("─", 60))
+      table.insert(lines, "  Notes (" .. tostring(#detail.notes) .. "):")
+      for _, note in ipairs(detail.notes) do
+        table.insert(lines, "")
+        table.insert(lines, "    " .. (note.title or "Note"))
+        if note.note then
+          local plain = note.note:gsub("<[^>]+>", "")
+          local cleaned = plain:gsub("\r\n?", "\n")
+          for _, n_line in ipairs(vim.split(cleaned, "\n")) do
+            local trimmed = n_line:gsub("^%s+", "")
+            if trimmed ~= "" then
+              local wrapped = M.wrap_text(trimmed, 52)
+              for _, wline in ipairs(wrapped) do
+                table.insert(lines, "      " .. wline)
+              end
             end
           end
         end
       end
     end
-  end
 
-  if detail.attachments and #detail.attachments > 0 then
-    local existing = vim.tbl_filter(function(att)
-      return resolve_path(att) ~= nil
-    end, detail.attachments)
+    if detail.attachments and #detail.attachments > 0 then
+      local existing = vim.tbl_filter(function(att)
+        return resolve_path(att) ~= nil
+      end, detail.attachments)
 
-    table.insert(lines, "")
-    table.insert(lines, "  Attachments (" .. tostring(#existing) .. "):")
-    for _, att in ipairs(existing) do
-      local full_path = resolve_path(att)
-      table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
+      table.insert(lines, "")
+      table.insert(lines, "  Attachments (" .. tostring(#existing) .. "):")
+      for _, att in ipairs(existing) do
+        local full_path = resolve_path(att)
+        table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
+      end
+    else
+      table.insert(lines, "")
+      table.insert(lines, "  Attachments (0):")
     end
-  else
-    table.insert(lines, "")
-    table.insert(lines, "  Attachments (0):")
-  end
 
-  table.insert(lines, "  [press q to close]")
+    table.insert(lines, "  [press q to close]")
 
-  -- backdrop
-  backdrop_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[backdrop_buf].buftype = "nofile"
-  backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
-    relative = "editor",
-    width = vim.o.columns,
-    height = vim.o.lines,
-    row = 0,
-    col = 0,
-    style = "minimal",
-    border = "none",
-    zindex = 49,
-    focusable = false,
-  })
-  vim.wo[backdrop_win].winhl = "Normal:ZoteroDetailBackdrop"
-  vim.wo[backdrop_win].winblend = 60
+    async_mod.to_main()
 
-  float_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[float_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
-  vim.bo[float_buf].modifiable = false
-  vim.bo[float_buf].filetype = "zotero-detail"
+    -- backdrop
+    backdrop_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[backdrop_buf].buftype = "nofile"
+    backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
+      relative = "editor",
+      width = vim.o.columns,
+      height = vim.o.lines,
+      row = 0,
+      col = 0,
+      style = "minimal",
+      border = "none",
+      zindex = 49,
+      focusable = false,
+    })
+    vim.wo[backdrop_win].winhl = "Normal:ZoteroDetailBackdrop"
+    vim.wo[backdrop_win].winblend = 60
 
-  local width = math.min(120, vim.o.columns - 8)
-  local height = math.min(#lines, vim.o.lines - 6)
-  local row = math.floor((vim.o.lines - height) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
+    float_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[float_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+    vim.bo[float_buf].modifiable = false
+    vim.bo[float_buf].filetype = "zotero-detail"
 
-  float_win = vim.api.nvim_open_win(float_buf, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = row,
-    col = col,
-    style = "minimal",
-    border = "rounded",
-    title = " Item Details ",
-    title_pos = "center",
-    zindex = 50,
-  })
+    local width = math.min(120, vim.o.columns - 8)
+    local height = math.min(#lines, vim.o.lines - 6)
+    local row = math.floor((vim.o.lines - height) / 2)
+    local col = math.floor((vim.o.columns - width) / 2)
 
-  vim.wo[float_win].wrap = true
+    float_win = vim.api.nvim_open_win(float_buf, true, {
+      relative = "editor",
+      width = width,
+      height = height,
+      row = row,
+      col = col,
+      style = "minimal",
+      border = "rounded",
+      title = " Item Details ",
+      title_pos = "center",
+      zindex = 50,
+    })
 
-  M.apply_highlights(float_buf)
+    vim.wo[float_win].wrap = true
 
-  vim.keymap.set("n", "q", function()
-    M.close()
-  end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
+    M.apply_highlights(float_buf)
 
-  vim.keymap.set("n", "<Esc>", function()
-    M.close()
-  end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
+    vim.keymap.set("n", "q", function()
+      M.close()
+    end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
 
-  vim.api.nvim_create_autocmd("WinClosed", {
-    buffer = float_buf,
-    once = true,
-    callback = function()
-      if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
-        vim.api.nvim_win_close(backdrop_win, true)
-        backdrop_win = nil
-      end
-      if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
-        vim.api.nvim_buf_delete(backdrop_buf, { force = true })
-        backdrop_buf = nil
-      end
-    end,
-  })
+    vim.keymap.set("n", "<Esc>", function()
+      M.close()
+    end, { buffer = float_buf, silent = true, nowait = true, desc = "close detail" })
+
+    vim.api.nvim_create_autocmd("WinClosed", {
+      buffer = float_buf,
+      once = true,
+      callback = function()
+        if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
+          vim.api.nvim_win_close(backdrop_win, true)
+          backdrop_win = nil
+        end
+        if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
+          vim.api.nvim_buf_delete(backdrop_buf, { force = true })
+          backdrop_buf = nil
+        end
+      end,
+    })
+  end)
 end
 
 function M.apply_highlights(buf)

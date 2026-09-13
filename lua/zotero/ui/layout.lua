@@ -1,4 +1,5 @@
 local M = {}
+local async_mod = require("zotero.async")
 
 local detail = require("zotero.ui.detail")
 
@@ -45,21 +46,30 @@ end
 function M.toggle_statuscolumn()
   statuscolumn_visible = not statuscolumn_visible
   apply_statuscolumn()
-  vim.notify("zotero: statuscolumn " .. (statuscolumn_visible and "shown" or "hidden"), vim.log.levels.INFO)
+  async_mod.notify("zotero: statuscolumn " .. (statuscolumn_visible and "shown" or "hidden"), vim.log.levels.INFO)
 end
 
 function M.create_layout()
-  local collections_buf = vim.api.nvim_create_buf(false, true)
-  local items_buf = vim.api.nvim_create_buf(false, true)
+  -- Reuse the previous session's buffers when they are still alive so a
+  -- reopen can repaint instantly instead of showing empty windows.
+  local collections_buf = state.collections_buf
+  local items_buf = state.items_buf
+  local reuse = collections_buf and vim.api.nvim_buf_is_valid(collections_buf)
+    and items_buf and vim.api.nvim_buf_is_valid(items_buf)
 
-  vim.bo[collections_buf].filetype = "zotero-collections"
-  vim.bo[items_buf].filetype = "zotero-items"
+  if not reuse then
+    collections_buf = vim.api.nvim_create_buf(false, true)
+    items_buf = vim.api.nvim_create_buf(false, true)
 
-  pcall(vim.api.nvim_buf_set_name, collections_buf, "zotero://collections")
-  pcall(vim.api.nvim_buf_set_name, items_buf, "zotero://items")
+    vim.bo[collections_buf].filetype = "zotero-collections"
+    vim.bo[items_buf].filetype = "zotero-items"
 
-  vim.bo[collections_buf].buflisted = false
-  vim.bo[items_buf].buflisted = false
+    pcall(vim.api.nvim_buf_set_name, collections_buf, "zotero://collections")
+    pcall(vim.api.nvim_buf_set_name, items_buf, "zotero://items")
+
+    vim.bo[collections_buf].buflisted = false
+    vim.bo[items_buf].buflisted = false
+  end
 
   local total_width = vim.o.columns
   local collections_width = math.max(25, math.floor(total_width * 0.2))
@@ -226,26 +236,20 @@ function M.close()
     detail.close()
   end
 
-  local function buf_valid(b)
-    return b and vim.api.nvim_buf_is_valid(b)
+  if not (state.tabpage and vim.api.nvim_tabpage_is_valid(state.tabpage)) then
+    state.is_open = false
+    return
   end
 
-  local tabpage = state.tabpage
+  -- Make the Zotero tab current and close it; the previously active tab is
+  -- focused automatically. Note: some builds lack vim.api.nvim_tabpage_close,
+  -- so use the always-available :tabclose ex command instead.
+  vim.api.nvim_set_current_tabpage(state.tabpage)
+  pcall(vim.cmd, "tabclose")
 
-  -- return to the previous tab (Zotero always opens in its own new tab)
-  vim.cmd("tabprevious")
-  if tabpage and vim.api.nvim_tabpage_is_valid(tabpage) then
-    pcall(vim.api.nvim_tabpage_close, tabpage)
-  end
-
-  for _, buf in ipairs({ state.collections_buf, state.items_buf }) do
-    if buf_valid(buf) then
-      vim.api.nvim_buf_delete(buf, { force = true })
-    end
-  end
-
-  state.collections_buf = nil
-  state.items_buf = nil
+  -- Note: buffers are intentionally kept alive so a reopen can repaint from
+  -- memory instantly. They are scratch (buflisted=false) and get deleted via
+  -- is_open() when the tab is closed externally instead.
   state.collections_win = nil
   state.items_win = nil
   state.tabpage = nil

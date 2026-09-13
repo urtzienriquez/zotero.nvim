@@ -57,10 +57,23 @@ M.defaults = {
   backend = "fzf",
   max_items = 500,
   columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
+  -- Timeouts (ms) for the vim.async migration
+  process_timeout = 30000,
+  -- Timeout (ms) for connector HTTP requests. The pre-async code had no
+  -- timeout at all; Zotero can take a while to process imports, so keep this
+  -- generous. Override via setup({ http_timeout = ... }).
+  http_timeout = 60000,
+  wait_timeout = 30000,
 }
 
 M.options = nil
 local _initialized = false
+
+if not vim.async then
+  local msg = "zotero.nvim: this version requires a Neovim build with vim.async (master). "
+    .. "For Neovim < 0.13, install the latest tagged release of zotero.nvim instead."
+  vim.notify(msg, vim.log.levels.ERROR, { title = "zotero" })
+end
 
 local function auto_detect_db()
   local home = vim.fn.expand("~")

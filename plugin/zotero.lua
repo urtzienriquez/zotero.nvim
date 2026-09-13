@@ -3,6 +3,9 @@ if vim.g.loaded_zotero == 1 then
 end
 vim.g.loaded_zotero = 1
 
+local async_mod = require("zotero.async")
+local db = require("zotero.db")
+
 vim.api.nvim_create_user_command("Zotero", function()
   require("zotero").open_library()
 end, { desc = "Open Zotero library browser" })
@@ -18,11 +21,11 @@ end, { desc = "Import a PDF into Zotero", nargs = 1, complete = "file" })
 vim.api.nvim_create_user_command("ZoteroMaxItems", function(opts)
   local n = tonumber(opts.args)
   if not n or n < 1 then
-    vim.notify("zotero: max_items must be a positive integer", vim.log.levels.ERROR)
+    async_mod.notify("zotero: max_items must be a positive integer", vim.log.levels.ERROR)
     return
   end
   require("zotero.config").options.max_items = n
-  vim.notify("zotero: max_items set to " .. n, vim.log.levels.INFO)
+  async_mod.notify("zotero: max_items set to " .. n, vim.log.levels.INFO)
   require("zotero.ui.items").fetch_and_render(true)
 end, { nargs = 1, desc = "Set the maximum number of items to display (e.g. :ZoteroMaxItems 100)" })
 
@@ -31,19 +34,21 @@ local function set_date_cmd(postfix, label, fn)
     local items = require("zotero.ui.items")
     local item = items.get_current_item()
     if not item then
-      vim.notify("zotero: no item under cursor", vim.log.levels.ERROR)
-      return
-    end
-    local db = require("zotero.db")
-    local item_key = db.get_item_key(item.itemID)
-    if not item_key or item_key == "" then
-      vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+      async_mod.notify("zotero: no item under cursor", vim.log.levels.ERROR)
       return
     end
     local function apply(input)
       if input and input ~= "" then
-        fn(item_key, vim.trim(input))
-        items.fetch_and_render(true)
+        async_mod.run("zotero:set_date", function()
+          local item_key = async_mod.await(db.get_item_key(item.itemID))
+          if not item_key or item_key == "" then
+            async_mod.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+            return
+          end
+          async_mod.await(fn(item_key, vim.trim(input)))
+          async_mod.to_main()
+          items.fetch_and_render(true)
+        end)
       end
     end
     if opts.args and opts.args ~= "" then

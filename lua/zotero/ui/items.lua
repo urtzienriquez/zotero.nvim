@@ -4,6 +4,7 @@ local db = require("zotero.db")
 local types = require("zotero.types")
 local layout = require("zotero.ui.layout")
 local cfg_mod = require("zotero.config")
+local async_mod = require("zotero.async")
 
 local items_data = {}
 local cursor_line = 1
@@ -17,6 +18,7 @@ local marked_items = {}
 local show_only_marked = false
 local last_items_width = -1
 local _resize_autocmd_set = false
+local _render_version = nil
 
 local function sql_str(val, default)
   if type(val) ~= "string" then
@@ -359,7 +361,7 @@ local function load_authors_for_items(items)
     return items
   end
   local item_ids = vim.tbl_map(function(i) return i.itemID end, items)
-  local all_creators = db.get_items_authors(item_ids)
+  local all_creators = async_mod.await(db.get_items_authors(item_ids))
   local creators_by_item = {}
   for _, c in ipairs(all_creators) do
     creators_by_item[c.itemID] = creators_by_item[c.itemID] or {}
@@ -408,52 +410,77 @@ function M.restore_session()
 end
 
 function M.fetch_and_render(refresh_collections)
-  if refresh_collections then
-    require("zotero.db").invalidate_cache()
-  end
-  local limit = show_only_marked and 100000 or nil
-  local items
-  if is_trash_mode then
-    items = db.get_trash_items(sort_by, sort_dir, limit)
-  elseif current_collection_id then
-    items = db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit)
-  else
-    items = db.search_global(search_term, sort_by, sort_dir, limit)
-  end
+  async_mod.run("zotero:ui.items.render", function()
+    if refresh_collections then
+      require("zotero.db").invalidate_cache()
+    end
+    local limit = show_only_marked and 100000 or nil
+    local items
+    if is_trash_mode then
+      items = async_mod.await(db.get_trash_items(sort_by, sort_dir, limit))
+    elseif current_collection_id then
+      items = async_mod.await(db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit))
+    else
+      items = async_mod.await(db.search_global(search_term, sort_by, sort_dir, limit))
+    end
 
-  items = load_authors_for_items(items)
-  items_data = items
+    items = load_authors_for_items(items)
+    items_data = items
 
+    async_mod.to_main()
+
+    local buf = layout.get_items_buf()
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+
+    vim.bo[buf].modifiable = true
+    local lines = format_items_table(items)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+
+    if cursor_line > #lines then
+      cursor_line = #lines
+    end
+    local mcl = min_cursor_line()
+    if cursor_line < mcl then
+      cursor_line = #lines >= mcl and mcl or 1
+    end
+
+    M.apply_highlights(buf)
+
+    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+
+    M.update_status()
+
+    local win = layout.get_items_win()
+    last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
+
+    if refresh_collections then
+      require("zotero.ui.collections").refresh_counts()
+    end
+
+    _render_version = db.get_data_version()
+  end)
+end
+
+-- Synchronously repopulate the items buffer from the last in-memory render
+-- (no IPC, no event-loop hops) so an open after close is instant. Returns
+-- true when the rendered data is still fresh, so the caller can skip the
+-- background (re)query entirely.
+function M.restore_render()
   local buf = layout.get_items_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
-    return
+    return false
   end
-
-  vim.bo[buf].modifiable = true
-  local lines = format_items_table(items)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-
-  if cursor_line > #lines then
-    cursor_line = #lines
+  if #items_data == 0 then
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "  (loading Zotero items…)" })
+    vim.bo[buf].modifiable = false
+    return false
   end
-  local mcl = min_cursor_line()
-  if cursor_line < mcl then
-    cursor_line = #lines >= mcl and mcl or 1
-  end
-
-  M.apply_highlights(buf)
-
-  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-
-  M.update_status()
-
-  local win = layout.get_items_win()
-  last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
-
-  if refresh_collections then
-    require("zotero.ui.collections").refresh_counts()
-  end
+  M.rerender()
+  return not db.is_stale_since(_render_version)
 end
 
 function M.apply_highlights(buf)
@@ -670,6 +697,8 @@ function M.show_results(results)
 
   local win = layout.get_items_win()
   last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
+
+  _render_version = db.get_data_version()
 end
 
 local function clear_search()
@@ -689,42 +718,47 @@ local function open_attachment()
   if not item then
     return
   end
-  local attachments = db.get_item_attachments(item.itemID)
-  if #attachments == 0 then
-    vim.notify("zotero: no attachments for this item", vim.log.levels.INFO)
-    return
-  end
-  local existing = vim.tbl_filter(function(a)
-    return db.resolve_attachment_path(a) ~= nil
-  end, attachments)
-  if #existing == 0 then
-    vim.notify("zotero: no attachment files found on disk for this item", vim.log.levels.INFO)
-    return
-  end
-  if #existing == 1 then
-    M.open_file(existing[1])
-    return
-  end
-
-  local choices = {}
-  for _, a in ipairs(existing) do
-    table.insert(choices, a.title or a.path or "attachment")
-  end
-  vim.ui.select(choices, { prompt = "Open attachment:" }, function(choice, idx)
-    if choice and idx then
-      M.open_file(existing[idx])
+  async_mod.run("zotero:ui.items.open_attachment", function()
+    local attachments = async_mod.await(db.get_item_attachments(item.itemID))
+    if #attachments == 0 then
+      async_mod.notify("zotero: no attachments for this item", vim.log.levels.INFO)
+      return
     end
+    local existing = vim.tbl_filter(function(a)
+      return db.resolve_attachment_path(a) ~= nil
+    end, attachments)
+    if #existing == 0 then
+      async_mod.notify("zotero: no attachment files found on disk for this item", vim.log.levels.INFO)
+      return
+    end
+    if #existing == 1 then
+      async_mod.to_main()
+      M.open_file(existing[1])
+      return
+    end
+
+    local choices = {}
+    for _, a in ipairs(existing) do
+      table.insert(choices, a.title or a.path or "attachment")
+    end
+    async_mod.to_main()
+    vim.ui.select(choices, { prompt = "Open attachment:" }, function(choice, idx)
+      if choice and idx then
+        M.open_file(existing[idx])
+      end
+    end)
   end)
 end
 
 function M.open_file(attachment)
   local path = attachment.path or ""
   if path == "" then
-    vim.notify("zotero: no path for attachment", vim.log.levels.WARN)
+    async_mod.notify("zotero: no path for attachment", vim.log.levels.WARN)
     return
   end
 
-  local storage_dir = vim.fn.expand("~") .. "/Zotero/storage"
+  local home = vim.uv.os_homedir()
+  local storage_dir = home .. "/Zotero/storage"
   local full_path = nil
 
   if path:find("^storage:") then
@@ -745,19 +779,19 @@ function M.open_file(attachment)
     end
   elseif path:find("^attachments:") then
     local rel = path:sub(13)
-    full_path = vim.fn.expand("~") .. "/Zotero/" .. rel
+    full_path = home .. "/Zotero/" .. rel
     if vim.fn.filereadable(full_path) == 0 then
       full_path = nil
     end
   else
-    full_path = vim.fn.expand(path)
+    full_path = path:gsub("^~", home)
     if vim.fn.filereadable(full_path) == 0 then
       full_path = nil
     end
   end
 
   if not full_path then
-    vim.notify("zotero: attachment file not found on disk", vim.log.levels.WARN)
+    async_mod.notify("zotero: attachment file not found on disk", vim.log.levels.WARN)
     return
   end
 
@@ -778,11 +812,96 @@ local function get_visual_lines()
   end
 end
 
+local function delete_items_in_range(start_line, end_line)
+  local seen = {}
+  local to_delete = {}
+  for line = start_line, end_line do
+    local item = get_item_at_visible_line(line)
+    if item and not seen[item.itemID] then
+      seen[item.itemID] = true
+      to_delete[#to_delete + 1] = item
+    end
+  end
+
+  if #to_delete == 0 then
+    return
+  end
+
+  local count = #to_delete
+  local single = count == 1
+
+  if is_trash_mode then
+    local msg = single
+      and ("Permanently delete '" .. (to_delete[1].title or "(no title)") .. "'? This cannot be undone.")
+      or ("Permanently delete " .. count .. " items? This cannot be undone.")
+    local choice = vim.fn.confirm(msg, "&Yes\n&No", 2)
+    if choice ~= 1 then
+      return
+    end
+
+    async_mod.run("zotero:ui.items.erase", function()
+      local item_keys = {}
+      local collection_keys = {}
+      for _, item in ipairs(to_delete) do
+        if item._is_collection and item._is_collection ~= 0 then
+          if item._trash_key then
+            collection_keys[#collection_keys + 1] = item._trash_key
+          end
+        else
+          local key = async_mod.await(db.get_item_key(item.itemID))
+          if key and key ~= "" then
+            item_keys[#item_keys + 1] = key
+          end
+        end
+      end
+
+      local ok = async_mod.await(require("zotero.api").erase_items(item_keys, collection_keys))
+      if ok then
+        async_mod.notify("zotero: permanently deleted " .. count .. " item(s)", vim.log.levels.INFO)
+        async_mod.to_main()
+        M.fetch_and_render(true)
+      end
+    end)
+    return
+  end
+
+  -- Normal mode: trash items
+  local msg = single
+    and ("Move '" .. (to_delete[1].title or "(no title)") .. "' to trash?")
+    or ("Move " .. count .. " items to trash?")
+  local choice = vim.fn.confirm(msg, "&Yes\n&No", 2)
+  if choice ~= 1 then
+    return
+  end
+
+  async_mod.run("zotero:ui.items.trash", function()
+    local item_keys = {}
+    for _, item in ipairs(to_delete) do
+      local key = async_mod.await(db.get_item_key(item.itemID))
+      if key and key ~= "" then
+        item_keys[#item_keys + 1] = key
+      end
+    end
+
+    local ok = async_mod.await(require("zotero.api").delete_items(item_keys))
+    if ok then
+      async_mod.notify("zotero: trashed " .. count .. " item(s)", vim.log.levels.INFO)
+      async_mod.to_main()
+      M.fetch_and_render(true)
+    end
+  end)
+end
+
 function M.set_keymaps()
   local buf = layout.get_items_buf()
   if not buf then
     return
   end
+
+  if vim.b[buf].zotero_items_setup then
+    return
+  end
+  vim.b[buf].zotero_items_setup = true
 
   local cfg = require("zotero.config").get()
   local km = cfg.keymaps
@@ -836,23 +955,26 @@ function M.set_keymaps()
     if not item then
       return
     end
-    local metadata = db.get_item_metadata(item.itemID)
-    local url = nil
-    local doi = nil
-    for _, m in ipairs(metadata) do
-      if m.fieldName == "url" and m.value and m.value ~= "" then
-        url = m.value
-      elseif m.fieldName == "DOI" and m.value and m.value ~= "" then
-        doi = m.value
+    async_mod.run("zotero:ui.items.open_url", function()
+      local metadata = async_mod.await(db.get_item_metadata(item.itemID))
+      local url = nil
+      local doi = nil
+      for _, m in ipairs(metadata) do
+        if m.fieldName == "url" and m.value and m.value ~= "" then
+          url = m.value
+        elseif m.fieldName == "DOI" and m.value and m.value ~= "" then
+          doi = m.value
+        end
       end
-    end
-    local link = url or (doi and "https://doi.org/" .. doi)
-    if not link then
-      vim.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
-      return
-    end
-    local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
-    vim.fn.jobstart({ viewer, link }, { detach = true })
+      local link = url or (doi and "https://doi.org/" .. doi)
+      if not link then
+        async_mod.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
+        return
+      end
+      local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
+      async_mod.to_main()
+      vim.fn.jobstart({ viewer, link }, { detach = true })
+    end)
   end, "open URL/DOI in browser")
 
   map("n", "items_sort_title", function()
@@ -888,12 +1010,13 @@ function M.set_keymaps()
     vim.ui.input({ prompt = "Import PDF: ", completion = "file" }, function(path)
       if path and path ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
-        local ok = require("zotero.api").import_pdf(vim.fn.expand(vim.trim(path)), col_key)
-        if ok then
-          vim.defer_fn(function()
+        async_mod.run("zotero:ui.items.import_pdf", function()
+          local ok = async_mod.await(require("zotero.api").import_pdf(vim.fn.expand(vim.trim(path)), col_key))
+          if ok then
+            async_mod.to_main()
             M.fetch_and_render(true)
-          end, 300)
-        end
+          end
+        end)
       end
     end)
   end, "import PDF")
@@ -906,18 +1029,24 @@ function M.set_keymaps()
     if not item then
       return
     end
-    local item_key = db.get_item_key(item.itemID)
-    if not item_key or item_key == "" then
-      vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
-      return
-    end
-    vim.ui.input({ prompt = "Attach PDF: ", completion = "file" }, function(path)
-      if path and path ~= "" then
-        local ok = require("zotero.api").add_attachment(item_key, vim.fn.expand(vim.trim(path)))
-        if ok then
-          M.fetch_and_render(true)
-        end
+    async_mod.run("zotero:ui.items.attach_pdf", function()
+      local item_key = async_mod.await(db.get_item_key(item.itemID))
+      if not item_key or item_key == "" then
+        async_mod.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+        return
       end
+      async_mod.to_main()
+      vim.ui.input({ prompt = "Attach PDF: ", completion = "file" }, function(path)
+        if path and path ~= "" then
+          async_mod.run("zotero:ui.items.attach_pdf.go", function()
+            local ok = async_mod.await(require("zotero.api").add_attachment(item_key, vim.fn.expand(vim.trim(path))))
+            if ok then
+              async_mod.to_main()
+              M.fetch_and_render(true)
+            end
+          end)
+        end
+      end)
     end)
   end, "add attachment to item")
 
@@ -930,120 +1059,50 @@ function M.set_keymaps()
       return
     end
     local api = require("zotero.api")
-    local attachment = db.get_attachment(item.itemID)
-    if attachment then
-      vim.ui.input({ prompt = "DOI for attachment: " }, function(doi)
-        if doi and doi ~= "" then
-          local ok = api.fix_attachment_with_doi(attachment, vim.trim(doi))
-          if ok then
-            vim.defer_fn(function()
-              M.fetch_and_render(true)
-            end, 500)
+    async_mod.run("zotero:ui.items.fix_attachment", function()
+      local attachment = async_mod.await(db.get_attachment(item.itemID))
+      if attachment then
+        async_mod.to_main()
+        vim.ui.input({ prompt = "DOI for attachment: " }, function(doi)
+          if doi and doi ~= "" then
+            async_mod.run("zotero:ui.items.fix_attachment.go", function()
+              local ok = async_mod.await(api.fix_attachment_with_doi(attachment, vim.trim(doi)))
+              if ok then
+                async_mod.to_main()
+                M.fetch_and_render(true)
+              end
+            end)
+          end
+        end)
+      else
+        local item_key = async_mod.await(db.get_item_key(item.itemID))
+        if not item_key or item_key == "" then
+          async_mod.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
+          return
+        end
+        local metadata = async_mod.await(db.get_item_metadata(item.itemID))
+        local current_identifier = ""
+        for _, m in ipairs(metadata) do
+          if m.fieldName == "DOI" and m.value and m.value ~= "" then
+            current_identifier = m.value
+            break
           end
         end
-      end)
-    else
-      local item_key = db.get_item_key(item.itemID)
-      if not item_key or item_key == "" then
-        vim.notify("zotero: cannot determine item key", vim.log.levels.ERROR)
-        return
-      end
-      local metadata = db.get_item_metadata(item.itemID)
-      local current_identifier = ""
-      for _, m in ipairs(metadata) do
-        if m.fieldName == "DOI" and m.value and m.value ~= "" then
-          current_identifier = m.value
-          break
-        end
-      end
-      vim.ui.input({ prompt = "Identifier (DOI/URL): ", default = current_identifier }, function(identifier)
-        if identifier and identifier ~= "" then
-          local ok = api.update_item_from_identifier(item_key, vim.trim(identifier))
-          if ok then
-            vim.defer_fn(function()
-              M.fetch_and_render(true)
-            end, 500)
+        async_mod.to_main()
+        vim.ui.input({ prompt = "Identifier (DOI/URL): ", default = current_identifier }, function(identifier)
+          if identifier and identifier ~= "" then
+            async_mod.run("zotero:ui.items.update_identifier", function()
+              local ok = async_mod.await(api.update_item_from_identifier(item_key, vim.trim(identifier)))
+              if ok then
+                async_mod.to_main()
+                M.fetch_and_render(true)
+              end
+            end)
           end
-        end
-      end)
-    end
+        end)
+      end
+    end)
   end, "fix or update item with DOI")
-
-    local function delete_items_in_range(start_line, end_line)
-    local seen = {}
-    local to_delete = {}
-    for line = start_line, end_line do
-      local item = get_item_at_visible_line(line)
-      if item and not seen[item.itemID] then
-        seen[item.itemID] = true
-        if item then
-          to_delete[#to_delete + 1] = item
-        end
-      end
-    end
-
-    if #to_delete == 0 then
-      return
-    end
-
-    local count = #to_delete
-    local single = count == 1
-
-    if is_trash_mode then
-      local msg = single
-        and ("Permanently delete '" .. (to_delete[1].title or "(no title)") .. "'? This cannot be undone.")
-        or ("Permanently delete " .. count .. " items? This cannot be undone.")
-      local choice = vim.fn.confirm(msg, "&Yes\n&No", 2)
-      if choice ~= 1 then
-        return
-      end
-
-      local item_keys = {}
-      local collection_keys = {}
-      for _, item in ipairs(to_delete) do
-        if item._is_collection and item._is_collection ~= 0 then
-          if item._trash_key then
-            collection_keys[#collection_keys + 1] = item._trash_key
-          end
-        else
-          local key = db.get_item_key(item.itemID)
-          if key and key ~= "" then
-            item_keys[#item_keys + 1] = key
-          end
-        end
-      end
-
-      local ok = require("zotero.api").erase_items(item_keys, collection_keys)
-      if ok then
-        vim.notify("zotero: permanently deleted " .. count .. " item(s)", vim.log.levels.INFO)
-        M.fetch_and_render(true)
-      end
-      return
-    end
-
-    -- Normal mode: trash items
-    local msg = single
-      and ("Move '" .. (to_delete[1].title or "(no title)") .. "' to trash?")
-      or ("Move " .. count .. " items to trash?")
-    local choice = vim.fn.confirm(msg, "&Yes\n&No", 2)
-    if choice ~= 1 then
-      return
-    end
-
-    local item_keys = {}
-    for _, item in ipairs(to_delete) do
-      local key = db.get_item_key(item.itemID)
-      if key and key ~= "" then
-        item_keys[#item_keys + 1] = key
-      end
-    end
-
-    local ok = require("zotero.api").delete_items(item_keys)
-    if ok then
-      vim.notify("zotero: trashed " .. count .. " item(s)", vim.log.levels.INFO)
-      M.fetch_and_render(true)
-    end
-  end
 
   map({ "n", "x" }, "items_delete", function()
     local mode = vim.api.nvim_get_mode().mode
@@ -1071,51 +1130,66 @@ function M.set_keymaps()
       end_line = cursor_line
     end
 
-    local item_keys = {}
+    local item_ids = {}
     local titles = {}
     for line = start_line, end_line do
       local item = get_item_at_visible_line(line)
       if item and item.itemID then
-        local key = db.get_item_key(item.itemID)
+        item_ids[#item_ids + 1] = item.itemID
+        titles[#titles + 1] = item.title or "(no title)"
+      end
+    end
+
+    if #item_ids == 0 then
+      return
+    end
+
+    async_mod.run("zotero:ui.items.move_to_collection", function()
+      local resolved = {}
+      for _, item_id in ipairs(item_ids) do
+        local key = async_mod.await(db.get_item_key(item_id))
         if key and key ~= "" then
-          item_keys[#item_keys + 1] = key
-          titles[#titles + 1] = item.title or "(no title)"
+          resolved[#resolved + 1] = key
         end
       end
-    end
-
-    if #item_keys == 0 then
-      return
-    end
-
-    local collections = db.get_collections()
-    if not collections or #collections == 0 then
-      vim.notify("zotero: no collections available", vim.log.levels.INFO)
-      return
-    end
-
-    local names = {}
-    for _, col in ipairs(collections) do
-      local indent = string.rep("  ", col.depth or 0)
-      table.insert(names, indent .. col.collectionName)
-    end
-
-    local prompt = #item_keys == 1 and "Move '" .. titles[1] .. "' to:"
-      or "Move " .. #item_keys .. " items to:"
-
-    vim.ui.select(names, { prompt = prompt }, function(_, selected_idx)
-      if selected_idx and collections[selected_idx] then
-        local key = collections[selected_idx].key
-        local count = 0
-        local api = require("zotero.api")
-        for _, item_key in ipairs(item_keys) do
-          if api.add_to_collection(item_key, key) then
-            count = count + 1
-          end
-        end
-        vim.notify("zotero: added " .. count .. " item(s) to '" .. collections[selected_idx].collectionName .. "'", vim.log.levels.INFO)
-        require("zotero.ui.collections").refresh_counts()
+      if #resolved == 0 then
+        async_mod.notify("zotero: could not resolve item keys", vim.log.levels.ERROR)
+        return
       end
+
+      local collections = async_mod.await(db.get_collections())
+      if not collections or #collections == 0 then
+        async_mod.notify("zotero: no collections available", vim.log.levels.INFO)
+        return
+      end
+
+      local names = {}
+      for _, col in ipairs(collections) do
+        local indent = string.rep("  ", col.depth or 0)
+        table.insert(names, indent .. col.collectionName)
+      end
+
+      local prompt = #resolved == 1 and "Move '" .. titles[1] .. "' to:"
+        or "Move " .. #resolved .. " items to:"
+
+      async_mod.to_main()
+      vim.ui.select(names, { prompt = prompt }, function(_, selected_idx)
+        if selected_idx and collections[selected_idx] then
+          local key = collections[selected_idx].key
+          local name = collections[selected_idx].collectionName
+          async_mod.run("zotero:ui.items.move_to_collection.go", function()
+            local api = require("zotero.api")
+            local count = 0
+            for _, item_key in ipairs(resolved) do
+              if async_mod.await(api.add_to_collection(item_key, key)) then
+                count = count + 1
+              end
+            end
+            async_mod.notify("zotero: added " .. count .. " item(s) to '" .. name .. "'", vim.log.levels.INFO)
+            require("zotero.ui.collections").refresh_counts()
+          end)
+        end
+      end)
     end)
   end, "move item(s) to collection")
 
@@ -1176,10 +1250,13 @@ function M.set_keymaps()
     vim.ui.input({ prompt = "Add by identifier (DOI/ISBN/PMID/arXiv): " }, function(input)
       if input and input ~= "" then
         local col_key = require("zotero.ui.collections").get_selected_collection_key()
-        local ok = require("zotero.api").add_by_identifier(vim.trim(input), col_key)
-        if ok then
-          M.fetch_and_render(true)
-        end
+        async_mod.run("zotero:ui.items.add_by_identifier", function()
+          local ok = async_mod.await(require("zotero.api").add_by_identifier(vim.trim(input), col_key))
+          if ok then
+            async_mod.to_main()
+            M.fetch_and_render(true)
+          end
+        end)
       end
     end)
   end, "add item by identifier")
@@ -1261,7 +1338,7 @@ function M.show_help()
     "General:",
     "  g?            This help",
   }
-  vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
+  async_mod.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end
 
 function M.get_current_item()

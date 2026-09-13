@@ -1,4 +1,5 @@
 local M = {}
+local async_mod = require("zotero.async")
 
 function M.item_display(item)
   local title = item.title or "(no title)"
@@ -27,7 +28,7 @@ function M.search_items(items, on_done)
   end
   local ok, mod = pcall(require, "zotero.backends." .. backend)
   if not ok then
-    vim.notify("zotero: backend '" .. backend .. "' not found", vim.log.levels.ERROR)
+    async_mod.notify("zotero: backend '" .. backend .. "' not found", vim.log.levels.ERROR)
     return
   end
   mod.search_items(items, on_done)

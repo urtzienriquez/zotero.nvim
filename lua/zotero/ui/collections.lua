@@ -3,12 +3,16 @@ local M = {}
 local db = require("zotero.db")
 local layout = require("zotero.ui.layout")
 local items = require("zotero.ui.items")
+local async_mod = require("zotero.async")
 
 local collections_data = {}
 local expanded = {}
 local selected_collection_id = nil
 local cursor_line = 1
 local total_item_count = 0
+local trash_count = 0
+local collection_keys_by_id = {}
+local _render_version = nil
 
 local function get_display_lines()
   local lines = {}
@@ -61,9 +65,8 @@ local function get_display_lines()
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
 
-  local count = db.get_trash_count()
   table.insert(lines, {
-    line = "  Trash (" .. tostring(count) .. ")",
+    line = "  Trash (" .. tostring(trash_count) .. ")",
     collectionID = nil,
     has_children = false,
     depth = 0,
@@ -73,15 +76,16 @@ local function get_display_lines()
   return lines
 end
 
-function M.render()
-  local buf = layout.get_collections_buf()
-  if not buf then
-    return
-  end
-
-  collections_data = db.get_collections()
-  local stats = db.get_stats()
+local function load_data()
+  collections_data = async_mod.await(db.get_collections())
+  local stats = async_mod.await(db.get_stats())
   total_item_count = stats.items
+  trash_count = async_mod.await(db.get_trash_count())
+
+  collection_keys_by_id = {}
+  for _, col in ipairs(collections_data) do
+    collection_keys_by_id[col.collectionID] = col.key
+  end
 
   expanded["root"] = true
   for _, col in ipairs(collections_data) do
@@ -89,12 +93,44 @@ function M.render()
       expanded[col.collectionID] = true
     end
   end
+end
 
+function M.render()
+  async_mod.run("zotero:ui.collections.render", function()
+    load_data()
+
+    async_mod.to_main()
+
+    local buf = layout.get_collections_buf()
+    if not buf then
+      return
+    end
+
+    M.refresh_display()
+
+    vim.api.nvim_buf_clear_namespace(buf, vim.api.nvim_create_namespace("zotero-collections"), 0, -1)
+
+    M.set_keymaps()
+
+    _render_version = db.get_data_version()
+  end)
+end
+
+-- Synchronously repopulate the collections buffer from the last in-memory
+-- data (no IPC, no event-loop hops) so an open after close is instant.
+-- Returns true when the rendered data is still fresh, so the caller can skip
+-- the background (re)query entirely.
+function M.restore_render()
+  local buf = layout.get_collections_buf()
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return false
+  end
+  if #collections_data == 0 then
+    return false
+  end
   M.refresh_display()
-
-  vim.api.nvim_buf_clear_namespace(buf, vim.api.nvim_create_namespace("zotero-collections"), 0, -1)
-
   M.set_keymaps()
+  return not db.is_stale_since(_render_version)
 end
 
 function M.refresh_display()
@@ -157,11 +193,14 @@ function M.apply_highlights(buf)
 end
 
 function M.refresh_counts()
-  require("zotero.db").invalidate_cache()
-  collections_data = db.get_collections()
-  local stats = db.get_stats()
-  total_item_count = stats.items
-  M.refresh_display()
+  async_mod.run("zotero:ui.collections.refresh_counts", function()
+    require("zotero.db").invalidate_cache()
+    load_data()
+
+    async_mod.to_main()
+    M.refresh_display()
+    _render_version = db.get_data_version()
+  end)
 end
 
 function M.get_collection_at_line(line)
@@ -264,6 +303,11 @@ function M.set_keymaps()
     return
   end
 
+  if vim.b[buf].zotero_collections_setup then
+    return
+  end
+  vim.b[buf].zotero_collections_setup = true
+
   local cfg = require("zotero.config").get()
   local km = cfg.keymaps
   if not km.enabled then
@@ -317,7 +361,7 @@ function M.set_keymaps()
     local parent_key = nil
     local parent_name = ""
     if entry and entry.collectionID and not entry.is_trash and not entry.is_separator then
-      parent_key = db.get_collection_key(entry.collectionID)
+      parent_key = collection_keys_by_id[entry.collectionID]
       parent_name = entry.line:match("^%s*[▶▼ ]*%s*(.-)%s*%(") or ""
       if parent_name ~= "" then
         parent_name = " in '" .. parent_name .. "'"
@@ -325,8 +369,12 @@ function M.set_keymaps()
     end
     vim.ui.input({ prompt = "Collection name" .. parent_name .. ": " }, function(name)
       if name and name ~= "" then
-        require("zotero.api").create_collection(vim.trim(name), parent_key)
-        M.refresh_counts()
+        async_mod.run("zotero:ui.collections.new", function()
+          local ok = async_mod.await(require("zotero.api").create_collection(vim.trim(name), parent_key))
+          if ok then
+            M.refresh_counts()
+          end
+        end)
       end
     end)
   end, "create collection")
@@ -341,23 +389,25 @@ function M.set_keymaps()
     if choice ~= 1 then
       return
     end
-    local key = db.get_collection_key(entry.collectionID)
-    if not key or key == "" then
-      vim.notify("zotero: cannot determine collection key", vim.log.levels.ERROR)
-      return
-    end
-    local ok = require("zotero.api").trash_collection(key)
-    if ok then
-      vim.notify("zotero: trashed collection '" .. name .. "'", vim.log.levels.INFO)
-      M.refresh_counts()
-    end
+    async_mod.run("zotero:ui.collections.trash", function()
+      local key = collection_keys_by_id[entry.collectionID]
+      if not key or key == "" then
+        async_mod.notify("zotero: cannot determine collection key", vim.log.levels.ERROR)
+        return
+      end
+      local ok = async_mod.await(require("zotero.api").trash_collection(key))
+      if ok then
+        async_mod.notify("zotero: trashed collection '" .. name .. "'", vim.log.levels.INFO)
+        M.refresh_counts()
+      end
+    end)
   end, "trash collection")
 
   map("n", "collections_show_help", M.show_help, "help")
 end
 
 function M.show_help()
-  vim.notify(table.concat({
+  async_mod.notify(table.concat({
     "zotero.nvim - Collections",
     "─────────────────────────",
     "  j/k           Navigate",
@@ -380,7 +430,7 @@ function M.get_selected_collection_key()
   if not selected_collection_id then
     return nil
   end
-  return db.get_collection_key(selected_collection_id)
+  return collection_keys_by_id[selected_collection_id]
 end
 
 return M

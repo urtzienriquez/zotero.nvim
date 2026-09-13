@@ -20,7 +20,8 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 
 ## Requirements
 
-- Neovim >= 0.9
+- Neovim **nightly** (`vim.async` is used to keep the UI responsive while reading the database or talking to the connector)
+  - **Neovim < 0.13:** the `vim.async` API is not available there. Pin your install to `v0.0.2`.
 - `sqlite3` CLI (e.g. `apt install sqlite3`)
 - A local Zotero database at one of the standard locations: `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`, `~/.local/share/zotero/zotero.sqlite`
 - **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (Required for PDF import, add-by-identifier, and metadata editing)
@@ -36,6 +37,10 @@ Then run `:Zotero` or press `<leader>zz` to open.
 vim.pack.add({
   'https://github.com/urtzienriquez/zotero.nvim',
 })
+
+-- if you are not on neovim nightly, installed v0.0.2
+-- where there is not vim.async:
+-- vim.pack.add({{ src = gh("urtzienriquez/zotero.nvim"), version = "v0.0.2" },})
 
 require("zotero").setup()
 ```
