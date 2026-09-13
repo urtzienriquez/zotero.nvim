@@ -107,17 +107,22 @@ function M.http(args, opts)
   if has_w then
     return { code = out.code, body = stdout, http_code = 0, stderr = out.stderr }
   end
-  -- stdout = raw body immediately followed by the %{http_code} digit run. The
-  -- body may or may not end in a newline; only peel the code when it is a
-  -- clean 3-digit run that isn't glued to body digits.
   local tail = stdout:sub(-3)
-  if #stdout > 3 and tail:match("^%d%d%d$") and not stdout:sub(-4, -4):match("%d") then
-    return {
-      code = out.code,
-      body = stdout:sub(1, -4):gsub("%s+$", ""),
-      http_code = tonumber(tail) or 0,
-      stderr = out.stderr,
-    }
+  if tail:match("^%d%d%d$") then
+    if #stdout == 3 then
+      return { code = out.code, body = "", http_code = tonumber(tail) or 0, stderr = out.stderr }
+    end
+    -- stdout = raw body immediately followed by the %{http_code} digit run. The
+    -- body may or may not end in a newline; only peel the code when it is a
+    -- clean 3-digit run that isn't glued to body digits.
+    if not stdout:sub(-4, -4):match("%d") then
+      return {
+        code = out.code,
+        body = stdout:sub(1, -4):gsub("%s+$", ""),
+        http_code = tonumber(tail) or 0,
+        stderr = out.stderr,
+      }
+    end
   end
   return { code = out.code, body = stdout:gsub("%s+$", ""), http_code = 0, stderr = out.stderr }
 end
