@@ -536,6 +536,7 @@ local function check_duplicates_after_add(identifier, new_keys)
     { title = "zotero" }
   )
 
+  async_mod.to_main()
   local choice = async_mod.select({
     "Keep the newly added item (delete old)",
     "Keep the existing item(s) (delete new)",
@@ -610,6 +611,7 @@ local function check_duplicates_after_import(filename, new_key)
     { title = "zotero" }
   )
 
+  async_mod.to_main()
   local choice = async_mod.select({
     "Keep the newly imported item (delete old)",
     "Keep the existing item(s) (delete new)",

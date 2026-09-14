@@ -49,18 +49,26 @@ end
 
 -- Snapshot the live Zotero sqlite database into the private temp copy. Uses
 -- sqlite's online backup so the copy includes un-checkpointed WAL writes; a
--- plain `cp` of the main file alone would miss them. Falls back to copying the
--- main file (+ -wal sidecar) in case the live database rejects a backup.
+-- plain `cp` of the main file alone would miss them (and would capture a hot
+-- WAL mid-write if done during a write, yielding a torn, "locked" copy). Falls
+-- back to copying the main file (+ -wal sidecar) in case the live database
+-- rejects a backup.
+--
+-- Zotero briefly holds a write lock right after the library is reopened (it
+-- starts checkpointing/indexing), so `.backup` must arm a busy timeout and be
+-- retried -- otherwise sqlite3 bails with SQLITE_BUSY instantly and we fall
+-- into the unsafe raw-copy path, which all concurrent initial queries then
+-- read as "database is locked".
 local function db_backup(live, dest)
-  -- Start from a clean slate: `.backup` refuses a target that is not a valid
-  -- database (e.g. a copy left truncated by an earlier error).
+  -- v0.0.2 semantics, kept: one plain copy (main + WAL sidecar), guarded by
+  -- mtime upstream. No `.backup`-busy ladder — the CLI `.backup` opens its own
+  -- source connection that ignores the shell `.timeout`, so retrying it only
+  -- sleeps through a lock it can never wait out (byte-proven). A library at
+  -- rest (the normal open-library case) copies consistently on the first
+  -- attempt, so this returns immediately.
   pcall(vim.uv.fs_unlink, dest)
   pcall(vim.uv.fs_unlink, dest .. "-wal")
   pcall(vim.uv.fs_unlink, dest .. "-shm")
-  local ok, out = pcall(async_mod.sqlite, live, { ".backup " .. dest })
-  if ok and out.code == 0 then
-    return out
-  end
   local res = async_mod.copy(live, dest)
   if res.code ~= 0 then
     return res
@@ -73,9 +81,37 @@ local function db_backup(live, dest)
   return { code = 0, stdout = "", stderr = "" }
 end
 
--- Copy the live Zotero sqlite file into a private temp copy so queries never
--- hit the locked live database. Single-flight: concurrent callers share one
--- copy task. Runs via vim.system so the copy never blocks the event loop.
+local function live_count_of(db)
+  local ok, out = async_mod.sqlite(db, { "-cmd", ".timeout 2000", "-json", "select count(*) as c from items" })
+  if not ok or out.code ~= 0 then
+    return nil
+  end
+  local r = async_mod.json_decode(out.stdout)
+  if type(r) == "table" and r[1] and type(r[1].c) == "number" then
+    return r[1].c
+  end
+  return nil
+end
+
+local function validate_db_copy(live, copy)
+  local live_count = live_count_of(live)
+  if live_count == nil then
+    return true
+  end
+  if live_count == 0 then
+    return true
+  end
+  local ok, out = async_mod.sqlite(copy, { "-json", "select count(*) as c from items" })
+  if not ok or out.code ~= 0 then
+    return false
+  end
+  local r = async_mod.json_decode(out.stdout)
+  if type(r) ~= "table" or not r[1] or type(r[1].c) ~= "number" then
+    return false
+  end
+  return r[1].c == live_count
+end
+
 local function ensure_db_copy()
   local path = cfg().db_path
   if not path or path == "" then
@@ -93,6 +129,12 @@ local function ensure_db_copy()
   if db_last_mtime ~= nil and mtime == db_last_mtime and wmtime == (db_last_wal_mtime or 0) then
     return db_copy
   end
+  -- Single-flight: concurrent callers share one copy task and *all* await it,
+  -- so the copy always completes before any query runs and the first render
+  -- never bakes a torn snapshot. Awaiting here is what fixes the v0.0.2 ->
+  -- async migration regression (ordered copy) without the latency: the copy
+  -- itself is a single plain `cp` (v0.0.2 speed, immediate at rest), no
+  -- busy/validation sleep ladders.
   if not copy_task then
     local path_ = path
     copy_task = async_mod.run("zotero:db-copy", function()
@@ -103,7 +145,7 @@ local function ensure_db_copy()
         end
         local m = s.mtime.sec
         local w = wal_mtime(path_)
-        if m ~= db_last_mtime or w ~= (db_last_wal_mtime or 0) then
+        if m ~= (db_last_mtime or 0) or w ~= (db_last_wal_mtime or 0) then
           local ok = pcall(function()
             local out = db_backup(path_, db_copy)
             if out.code ~= 0 then
@@ -126,8 +168,6 @@ local function ensure_db_copy()
   return db_copy
 end
 
---- Generate a cache key scoped to the current DB file version. Queries are
---- cached against this key and are only valid while the DB mtime is unchanged.
 local function cache_key(spec)
   ensure_db_copy()
   return tostring(db_last_mtime) .. "|" .. tostring(db_last_wal_mtime or 0) .. "|" .. spec
