@@ -477,6 +477,41 @@ local function extract_doi(identifier)
   return identifier:match("^https?://[^/]+/doi[^/]*/(10%..+)$")
 end
 
+-- Shared by both duplicate-detection flows below: notify about `existing`
+-- duplicates, let the user resolve against `new_keys`, then act on the
+-- choice. `message_fn(existing_titles)` builds the notify body.
+local function resolve_duplicates(existing, new_keys, message_fn, prompt, keep_new_label)
+  local existing_titles = {}
+  for _, m in ipairs(existing) do
+    existing_titles[#existing_titles + 1] = m.title or "(no title)"
+  end
+
+  async_mod.notify(message_fn(existing_titles), vim.log.levels.WARN, { title = "zotero" })
+
+  async_mod.to_main()
+  local choice = async_mod.select({
+    keep_new_label,
+    "Keep the existing item(s) (delete new)",
+    "Merge all items into one",
+    "Do nothing (leave duplicates)",
+  }, {
+    prompt = prompt,
+  })
+  if choice == keep_new_label then
+    local old_keys = vim.tbl_map(function(m) return m.key end, existing)
+    if async_mod.await(M.delete_items(old_keys)) then
+      async_mod.notify("zotero: deleted " .. #old_keys .. " old duplicate(s)", vim.log.levels.INFO)
+    end
+  elseif choice == "Keep the existing item(s) (delete new)" then
+    if async_mod.await(M.erase_items(new_keys)) then
+      async_mod.notify("zotero: deleted " .. #new_keys .. " new duplicate(s)", vim.log.levels.INFO)
+    end
+  elseif choice == "Merge all items into one" then
+    local other_keys = vim.tbl_map(function(m) return m.key end, existing)
+    async_mod.await(M.merge_items(new_keys[1], other_keys))
+  end
+end
+
 local function check_duplicates_after_add(identifier, new_keys)
   local dbx = require("zotero.db")
 
@@ -521,43 +556,13 @@ local function check_duplicates_after_add(identifier, new_keys)
     end
   end
 
-  local existing_titles = {}
-  for _, m in ipairs(existing) do
-    existing_titles[#existing_titles + 1] = m.title or "(no title)"
-  end
-
-  async_mod.notify(
-    string.format(
+  resolve_duplicates(existing, new_keys, function(existing_titles)
+    return string.format(
       "Duplicate items detected!\nNew:  %s\nExisting:  %s",
       table.concat(new_titles, ", "),
       table.concat(existing_titles, ", ")
-    ),
-    vim.log.levels.WARN,
-    { title = "zotero" }
-  )
-
-  async_mod.to_main()
-  local choice = async_mod.select({
-    "Keep the newly added item (delete old)",
-    "Keep the existing item(s) (delete new)",
-    "Merge all items into one",
-    "Do nothing (leave duplicates)",
-  }, {
-    prompt = "Duplicate items found. What do you want to do?",
-  })
-  if choice == "Keep the newly added item (delete old)" then
-    local old_keys = vim.tbl_map(function(m) return m.key end, existing)
-    if async_mod.await(M.delete_items(old_keys)) then
-      async_mod.notify("zotero: deleted " .. #old_keys .. " old duplicate(s)", vim.log.levels.INFO)
-    end
-  elseif choice == "Keep the existing item(s) (delete new)" then
-    if async_mod.await(M.erase_items(new_keys)) then
-      async_mod.notify("zotero: deleted " .. #new_keys .. " new duplicate(s)", vim.log.levels.INFO)
-    end
-  elseif choice == "Merge all items into one" then
-    local other_keys = vim.tbl_map(function(m) return m.key end, existing)
-    async_mod.await(M.merge_items(new_keys[1], other_keys))
-  end
+    )
+  end, "Duplicate items found. What do you want to do?", "Keep the newly added item (delete old)")
 end
 
 local function check_duplicates_after_import(filename, new_key)
@@ -600,37 +605,9 @@ local function check_duplicates_after_import(filename, new_key)
     return
   end
 
-  local existing_titles = {}
-  for _, m in ipairs(existing) do
-    existing_titles[#existing_titles + 1] = m.title or "(no title)"
-  end
-
-  async_mod.notify(
-    "Duplicate items detected!\nExisting: " .. table.concat(existing_titles, ", "),
-    vim.log.levels.WARN,
-    { title = "zotero" }
-  )
-
-  async_mod.to_main()
-  local choice = async_mod.select({
-    "Keep the newly imported item (delete old)",
-    "Keep the existing item(s) (delete new)",
-    "Merge all items into one",
-    "Do nothing (leave duplicates)",
-  }, {
-    prompt = "Possible duplicate items found. What do you want to do?",
-  })
-  if choice == "Keep the newly imported item (delete old)" then
-    local old_keys = vim.tbl_map(function(m) return m.key end, existing)
-    if async_mod.await(M.delete_items(old_keys)) then
-      async_mod.notify("zotero: deleted " .. #old_keys .. " old duplicate(s)", vim.log.levels.INFO)
-    end
-  elseif choice == "Keep the existing item(s) (delete new)" then
-    async_mod.await(M.erase_items({ (parent and parent.key) or new_key }))
-  elseif choice == "Merge all items into one" then
-    local other_keys = vim.tbl_map(function(m) return m.key end, existing)
-    async_mod.await(M.merge_items((parent and parent.key) or new_key, other_keys))
-  end
+  resolve_duplicates(existing, { search_key }, function(existing_titles)
+    return "Duplicate items detected!\nExisting: " .. table.concat(existing_titles, ", ")
+  end, "Possible duplicate items found. What do you want to do?", "Keep the newly imported item (delete old)")
 end
 
 function M.add_by_identifier(identifier, collection_key)

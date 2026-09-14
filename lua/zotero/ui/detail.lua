@@ -72,41 +72,6 @@ local PRIORITY_FIELDS = {
   shortTitle = "Short Title",
 }
 
-local function resolve_path(attachment)
-  local path = attachment.path or ""
-  if path == "" then
-    return nil
-  end
-
-  local home = vim.uv.os_homedir()
-  local storage_dir = home .. "/Zotero/storage"
-  local full_path = nil
-
-  if path:find("^storage:") then
-    local rel = path:sub(9)
-    if attachment.key then
-      local candidate = storage_dir .. "/" .. attachment.key .. "/" .. rel
-      if vim.fn.filereadable(candidate) == 1 then
-        full_path = candidate
-      end
-    end
-    if not full_path then
-      local candidate = storage_dir .. "/" .. rel
-      if vim.fn.filereadable(candidate) == 1 then
-        full_path = candidate
-      end
-    end
-  elseif path:find("^attachments:") then
-    local rel = path:sub(13)
-    full_path = home .. "/Zotero/" .. rel
-    if vim.fn.filereadable(full_path) == 0 then
-      full_path = nil
-    end
-  end
-
-  return full_path
-end
-
 local function sanitize(val)
   if not val then
     return ""
@@ -114,7 +79,7 @@ local function sanitize(val)
   return val:gsub("\n", " "):gsub("\r", "")
 end
 
-function M.show_item(item_id)
+function M.show_item(item_id, type_name_hint)
   M.close()
 
   current_item_id = item_id
@@ -122,10 +87,13 @@ function M.show_item(item_id)
   async_mod.run("zotero:ui.detail.show", function()
     local detail = async_mod.await(db.get_item_detail(item_id))
     local metadata = detail.metadata or {}
-    local type_id = async_mod.await(db.get_item_type_id(item_id))
-    local type_name = nil
-    if type_id then
-      type_name = async_mod.await(db.get_item_type_name(type_id))
+    -- Fall back to a DB lookup only if the caller didn't already know it.
+    local type_name = type_name_hint
+    if not type_name then
+      local type_id = async_mod.await(db.get_item_type_id(item_id))
+      if type_id then
+        type_name = async_mod.await(db.get_item_type_name(type_id))
+      end
     end
 
     local lines = {}
@@ -230,13 +198,13 @@ function M.show_item(item_id)
 
     if detail.attachments and #detail.attachments > 0 then
       local existing = vim.tbl_filter(function(att)
-        return resolve_path(att) ~= nil
+        return db.resolve_attachment_path(att) ~= nil
       end, detail.attachments)
 
       table.insert(lines, "")
       table.insert(lines, "  Attachments (" .. tostring(#existing) .. "):")
       for _, att in ipairs(existing) do
-        local full_path = resolve_path(att)
+        local full_path = db.resolve_attachment_path(att)
         table.insert(lines, "    " .. (sanitize(att.title) or "attachment") .. "  —  " .. full_path)
       end
     else
@@ -247,6 +215,11 @@ function M.show_item(item_id)
     table.insert(lines, "  [press q to close]")
 
     async_mod.to_main()
+
+    -- A newer show_item() call may have superseded this one while awaiting.
+    if current_item_id ~= item_id then
+      return
+    end
 
     -- backdrop
     backdrop_buf = vim.api.nvim_create_buf(false, true)

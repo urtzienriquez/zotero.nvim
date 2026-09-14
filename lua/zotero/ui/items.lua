@@ -19,6 +19,9 @@ local show_only_marked = false
 local last_items_width = -1
 local _resize_autocmd_set = false
 local _render_version = nil
+-- Bumped on every fetch_and_render() call; lets a superseded in-flight
+-- render bail out instead of overwriting newer results.
+local _fetch_generation = 0
 
 local function sql_str(val, default)
   if type(val) ~= "string" then
@@ -410,6 +413,8 @@ function M.restore_session()
 end
 
 function M.fetch_and_render(refresh_collections)
+  _fetch_generation = _fetch_generation + 1
+  local generation = _fetch_generation
   async_mod.run("zotero:ui.items.render", function()
     if refresh_collections then
       require("zotero.db").invalidate_cache()
@@ -425,9 +430,16 @@ function M.fetch_and_render(refresh_collections)
     end
 
     items = load_authors_for_items(items)
+
+    if generation ~= _fetch_generation then
+      return
+    end
     items_data = items
 
     async_mod.to_main()
+    if generation ~= _fetch_generation then
+      return
+    end
 
     local buf = layout.get_items_buf()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
@@ -563,7 +575,7 @@ local function on_enter()
   local cursor = vim.api.nvim_win_get_cursor(win)
   local item = get_item_at_visible_line(cursor[1])
   if item then
-    require("zotero.ui.detail").show_item(item.itemID)
+    require("zotero.ui.detail").show_item(item.itemID, item.typeName)
   end
 end
 
@@ -751,45 +763,7 @@ local function open_attachment()
 end
 
 function M.open_file(attachment)
-  local path = attachment.path or ""
-  if path == "" then
-    async_mod.notify("zotero: no path for attachment", vim.log.levels.WARN)
-    return
-  end
-
-  local home = vim.uv.os_homedir()
-  local storage_dir = home .. "/Zotero/storage"
-  local full_path = nil
-
-  if path:find("^storage:") then
-    local rel = path:sub(9)
-    -- modern Zotero: storage/{item_key}/{filename}
-    if attachment.key then
-      local candidate = storage_dir .. "/" .. attachment.key .. "/" .. rel
-      if vim.fn.filereadable(candidate) == 1 then
-        full_path = candidate
-      end
-    end
-    -- fallback: storage/{filename}
-    if not full_path then
-      local candidate = storage_dir .. "/" .. rel
-      if vim.fn.filereadable(candidate) == 1 then
-        full_path = candidate
-      end
-    end
-  elseif path:find("^attachments:") then
-    local rel = path:sub(13)
-    full_path = home .. "/Zotero/" .. rel
-    if vim.fn.filereadable(full_path) == 0 then
-      full_path = nil
-    end
-  else
-    full_path = path:gsub("^~", home)
-    if vim.fn.filereadable(full_path) == 0 then
-      full_path = nil
-    end
-  end
-
+  local full_path = db.resolve_attachment_path(attachment)
   if not full_path then
     async_mod.notify("zotero: attachment file not found on disk", vim.log.levels.WARN)
     return
@@ -840,18 +814,25 @@ local function delete_items_in_range(start_line, end_line)
     end
 
     async_mod.run("zotero:ui.items.erase", function()
-      local item_keys = {}
       local collection_keys = {}
+      local item_ids = {}
       for _, item in ipairs(to_delete) do
         if item._is_collection and item._is_collection ~= 0 then
           if item._trash_key then
             collection_keys[#collection_keys + 1] = item._trash_key
           end
         else
-          local key = async_mod.await(db.get_item_key(item.itemID))
-          if key and key ~= "" then
-            item_keys[#item_keys + 1] = key
-          end
+          item_ids[#item_ids + 1] = item.itemID
+        end
+      end
+
+      -- One bulk lookup instead of one sqlite3 spawn per selected item.
+      local key_map = async_mod.await(db.get_item_keys(item_ids))
+      local item_keys = {}
+      for _, id in ipairs(item_ids) do
+        local key = key_map[id]
+        if key and key ~= "" then
+          item_keys[#item_keys + 1] = key
         end
       end
 
@@ -875,9 +856,12 @@ local function delete_items_in_range(start_line, end_line)
   end
 
   async_mod.run("zotero:ui.items.trash", function()
+    -- One bulk lookup instead of one sqlite3 spawn per selected item.
+    local item_ids = vim.tbl_map(function(item) return item.itemID end, to_delete)
+    local key_map = async_mod.await(db.get_item_keys(item_ids))
     local item_keys = {}
-    for _, item in ipairs(to_delete) do
-      local key = async_mod.await(db.get_item_key(item.itemID))
+    for _, id in ipairs(item_ids) do
+      local key = key_map[id]
       if key and key ~= "" then
         item_keys[#item_keys + 1] = key
       end
@@ -1145,9 +1129,11 @@ function M.set_keymaps()
     end
 
     async_mod.run("zotero:ui.items.move_to_collection", function()
+      -- One bulk lookup instead of one sqlite3 spawn per selected item.
+      local key_map = async_mod.await(db.get_item_keys(item_ids))
       local resolved = {}
       for _, item_id in ipairs(item_ids) do
-        local key = async_mod.await(db.get_item_key(item_id))
+        local key = key_map[item_id]
         if key and key ~= "" then
           resolved[#resolved + 1] = key
         end

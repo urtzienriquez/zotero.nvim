@@ -23,13 +23,52 @@ local function build_editable(data)
   }
 end
 
+-- Pretty-prints a JSON-encodable Lua value with 2-space indentation.
 local function pretty_json(data)
-  local json_str = async_mod.json_encode(data)
-  local ok, out = pcall(async_mod.sys, { "python3", "-m", "json.tool" }, { stdin = json_str })
-  if not ok or out.code ~= 0 or out.stdout == "" then
-    return json_str
+  local parts = {}
+
+  local function is_array(t)
+    local n = 0
+    for _ in pairs(t) do
+      n = n + 1
+    end
+    return n == #t
   end
-  return vim.trim(out.stdout)
+
+  local function encode(val, indent)
+    local pad = string.rep("  ", indent)
+    local pad_in = string.rep("  ", indent + 1)
+    local t = type(val)
+    -- vim.NIL is userdata, not a table, so it falls through to the else branch.
+    if t == "table" then
+      if next(val) == nil then
+        parts[#parts + 1] = is_array(val) and "[]" or "{}"
+      elseif is_array(val) then
+        parts[#parts + 1] = "[\n"
+        for i, v in ipairs(val) do
+          parts[#parts + 1] = pad_in
+          encode(v, indent + 1)
+          parts[#parts + 1] = (i < #val) and ",\n" or "\n"
+        end
+        parts[#parts + 1] = pad .. "]"
+      else
+        local keys = vim.tbl_keys(val)
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        parts[#parts + 1] = "{\n"
+        for i, k in ipairs(keys) do
+          parts[#parts + 1] = pad_in .. async_mod.json_encode(tostring(k)) .. ": "
+          encode(val[k], indent + 1)
+          parts[#parts + 1] = (i < #keys) and ",\n" or "\n"
+        end
+        parts[#parts + 1] = pad .. "}"
+      end
+    else
+      parts[#parts + 1] = async_mod.json_encode(val)
+    end
+  end
+
+  encode(data, 0)
+  return table.concat(parts)
 end
 
 local function write_buffer(buf, item_id, data, item_type_id, header_lines, json_lines, all_types)
@@ -77,8 +116,12 @@ end
 
 function M.open_edit(item_id)
   async_mod.run("zotero:edit.open", function()
-    local item_type_id = async_mod.await(db.get_item_type_id(item_id))
-    local data = async_mod.await(db.get_editable_item(item_id))
+    local t_item_type_id = db.get_item_type_id(item_id)
+    local t_data = db.get_editable_item(item_id)
+    local t_all_types = db.get_all_item_types()
+
+    local item_type_id = async_mod.await(t_item_type_id)
+    local data = async_mod.await(t_data)
     if not data then
       async_mod.notify("zotero: cannot get item data for editing", vim.log.levels.ERROR)
       return
@@ -87,7 +130,7 @@ function M.open_edit(item_id)
 
     local header_text = string.format(HEADER, data.key, data.itemType)
     local json_text = pretty_json(build_editable(data))
-    local all_types = async_mod.await(db.get_all_item_types())
+    local all_types = async_mod.await(t_all_types)
     local header_lines = vim.split(header_text, "\n")
     local json_lines = vim.split(json_text, "\n")
 
@@ -195,12 +238,13 @@ function M.save_edit(bufnr)
   end
 
   local api = require("zotero.api")
-  if not api.ping() then
-    async_mod.notify("zotero: Zotero is not running", vim.log.levels.ERROR)
-    return
-  end
 
   async_mod.run("zotero:edit.save", function()
+    if not async_mod.await(api.ping_async()) then
+      async_mod.notify("zotero: Zotero is not running", vim.log.levels.ERROR)
+      return
+    end
+
     local header_count = vim.b[bufnr].zotero_header_lines or 0
     local lines = vim.api.nvim_buf_get_lines(bufnr, header_count, -1, false)
     local json_text = table.concat(lines, "\n")

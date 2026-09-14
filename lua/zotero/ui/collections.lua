@@ -13,6 +13,9 @@ local total_item_count = 0
 local trash_count = 0
 local collection_keys_by_id = {}
 local _render_version = nil
+-- Bumped by M.render()/M.refresh_counts(); lets a superseded in-flight
+-- render bail out instead of overwriting newer results.
+local _render_generation = 0
 
 local function get_display_lines()
   local lines = {}
@@ -77,10 +80,15 @@ local function get_display_lines()
 end
 
 local function load_data()
-  collections_data = async_mod.await(db.get_collections())
-  local stats = async_mod.await(db.get_stats())
+  -- Launched before awaiting so the 3 queries run concurrently.
+  local t_collections = db.get_collections()
+  local t_stats = db.get_stats()
+  local t_trash_count = db.get_trash_count()
+
+  collections_data = async_mod.await(t_collections)
+  local stats = async_mod.await(t_stats)
   total_item_count = stats.items
-  trash_count = async_mod.await(db.get_trash_count())
+  trash_count = async_mod.await(t_trash_count)
 
   collection_keys_by_id = {}
   for _, col in ipairs(collections_data) do
@@ -96,10 +104,18 @@ local function load_data()
 end
 
 function M.render()
+  _render_generation = _render_generation + 1
+  local generation = _render_generation
   async_mod.run("zotero:ui.collections.render", function()
     load_data()
 
+    if generation ~= _render_generation then
+      return
+    end
     async_mod.to_main()
+    if generation ~= _render_generation then
+      return
+    end
 
     local buf = layout.get_collections_buf()
     if not buf then
@@ -193,11 +209,19 @@ function M.apply_highlights(buf)
 end
 
 function M.refresh_counts()
+  _render_generation = _render_generation + 1
+  local generation = _render_generation
   async_mod.run("zotero:ui.collections.refresh_counts", function()
     require("zotero.db").invalidate_cache()
     load_data()
 
+    if generation ~= _render_generation then
+      return
+    end
     async_mod.to_main()
+    if generation ~= _render_generation then
+      return
+    end
     M.refresh_display()
     _render_version = db.get_data_version()
   end)

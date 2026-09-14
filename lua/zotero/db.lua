@@ -4,12 +4,8 @@ local types = require("zotero.types")
 local config_mod = require("zotero.config")
 local async_mod = require("zotero.async")
 
-local _cfg = nil
 local function cfg()
-  if not _cfg then
-    _cfg = config_mod.get()
-  end
-  return _cfg
+  return config_mod.get()
 end
 
 local db_copy = nil
@@ -81,37 +77,6 @@ local function db_backup(live, dest)
   return { code = 0, stdout = "", stderr = "" }
 end
 
-local function live_count_of(db)
-  local ok, out = async_mod.sqlite(db, { "-cmd", ".timeout 2000", "-json", "select count(*) as c from items" })
-  if not ok or out.code ~= 0 then
-    return nil
-  end
-  local r = async_mod.json_decode(out.stdout)
-  if type(r) == "table" and r[1] and type(r[1].c) == "number" then
-    return r[1].c
-  end
-  return nil
-end
-
-local function validate_db_copy(live, copy)
-  local live_count = live_count_of(live)
-  if live_count == nil then
-    return true
-  end
-  if live_count == 0 then
-    return true
-  end
-  local ok, out = async_mod.sqlite(copy, { "-json", "select count(*) as c from items" })
-  if not ok or out.code ~= 0 then
-    return false
-  end
-  local r = async_mod.json_decode(out.stdout)
-  if type(r) ~= "table" or not r[1] or type(r[1].c) ~= "number" then
-    return false
-  end
-  return r[1].c == live_count
-end
-
 local function ensure_db_copy()
   local path = cfg().db_path
   if not path or path == "" then
@@ -168,21 +133,23 @@ local function ensure_db_copy()
   return db_copy
 end
 
-local function cache_key(spec)
-  ensure_db_copy()
-  return tostring(db_last_mtime) .. "|" .. tostring(db_last_wal_mtime or 0) .. "|" .. spec
-end
-
-local function cache_get(key)
-  -- Always re-check the live DB mtime so a change invalidates cached results
-  -- even if invalidate_cache() wasn't explicitly called (e.g. writes made
-  -- outside the plugin, or ordering of refresh vs. query).
-  ensure_db_copy()
+local function sync_cache_epoch()
   if _cache_mtime ~= db_last_mtime or _cache_wal_mtime ~= db_last_wal_mtime then
     _cache = {}
     _cache_mtime = db_last_mtime
     _cache_wal_mtime = db_last_wal_mtime
   end
+end
+
+-- Also refreshes the DB copy, so callers get a fresh dbfile to pass into
+-- json_query()/raw_query() instead of each one re-deriving it.
+local function cache_key(spec)
+  local dbfile = ensure_db_copy()
+  return dbfile, tostring(db_last_mtime) .. "|" .. tostring(db_last_wal_mtime or 0) .. "|" .. spec
+end
+
+local function cache_get(key)
+  sync_cache_epoch()
   local v = _cache[key]
   if v ~= nil then
     return v, true
@@ -191,12 +158,9 @@ local function cache_get(key)
 end
 
 local function cache_set(key, value)
+  -- Re-check: the query itself may have yielded while the live DB changed.
   ensure_db_copy()
-  if _cache_mtime ~= db_last_mtime or _cache_wal_mtime ~= db_last_wal_mtime then
-    _cache = {}
-    _cache_mtime = db_last_mtime
-    _cache_wal_mtime = db_last_wal_mtime
-  end
+  sync_cache_epoch()
   _cache[key] = value
 end
 
@@ -229,8 +193,8 @@ function M.is_stale_since(version)
   return mtime ~= db_last_mtime or wmtime ~= (db_last_wal_mtime or 0) or data_version > (version or 0)
 end
 
-local function json_query(sql)
-  local dbfile = ensure_db_copy()
+local function json_query(sql, dbfile)
+  dbfile = dbfile or ensure_db_copy()
   if not dbfile then
     return {}
   end
@@ -250,8 +214,8 @@ local function json_query(sql)
   return data
 end
 
-local function raw_query(sql)
-  local dbfile = ensure_db_copy()
+local function raw_query(sql, dbfile)
+  dbfile = dbfile or ensure_db_copy()
   if not dbfile then
     return ""
   end
@@ -390,13 +354,13 @@ end
 
 function M.get_stats()
   return async_mod.run("zotero:db.get_stats", function()
-    local key = cache_key("stats")
+    local dbfile, key = cache_key("stats")
     local cached = cache_get(key)
     if cached then
       return cached
     end
-    local collections = raw_query("SELECT COUNT(*) FROM collections")
-    local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)")
+    local collections = raw_query("SELECT COUNT(*) FROM collections", dbfile)
+    local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)", dbfile)
     local result = {
       collections = tonumber(collections) or 0,
       items = tonumber(items) or 0,
@@ -408,7 +372,7 @@ end
 
 function M.get_collections()
   return async_mod.run("zotero:db.get_collections", function()
-    local key = cache_key("collections")
+    local dbfile, key = cache_key("collections")
     local cached = cache_get(key)
     if cached then
       return cached
@@ -454,7 +418,7 @@ function M.get_collections()
       LEFT JOIN item_counts ic ON ct.collectionID = ic.collectionID
       ORDER BY ct.path COLLATE NOCASE
     ]]
-    local result = json_query(sql)
+    local result = json_query(sql, dbfile)
     cache_set(key, result)
     return result
   end)
@@ -567,13 +531,13 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       LIMIT ]] .. tostring(limit) .. [[
     ]]
 
-    local key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
+    local dbfile, key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
       .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
     local cached = cache_get(key)
     if cached then
       return cached
     end
-    local result = json_query(sql)
+    local result = json_query(sql, dbfile)
     cache_set(key, result)
     return result
   end)
@@ -658,12 +622,12 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
       LIMIT ]] .. tostring(limit) .. [[
     ]]
 
-    local key = cache_key("trash|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
+    local dbfile, key = cache_key("trash|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
     local cached = cache_get(key)
     if cached then
       return cached
     end
-    local result = json_query(sql)
+    local result = json_query(sql, dbfile)
     cache_set(key, result)
     return result
   end)
@@ -671,13 +635,13 @@ end
 
 function M.get_trash_count()
   return async_mod.run("zotero:db.get_trash_count", function()
-    local key = cache_key("trash_count")
+    local dbfile, key = cache_key("trash_count")
     local cached = cache_get(key)
     if cached then
       return cached
     end
-    local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE (" .. not_child("i") .. ")")
-    local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections")
+    local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE (" .. not_child("i") .. ")", dbfile)
+    local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections", dbfile)
     local result = (tonumber(item_count) or 0) + (tonumber(col_count) or 0)
     cache_set(key, result)
     return result
@@ -712,12 +676,12 @@ function M.get_items_authors(item_ids)
       WHERE ic.itemID IN (]] .. ids .. [[)
       ORDER BY ic.itemID, ic.orderIndex
     ]]
-    local key = cache_key("authors|" .. ids)
+    local dbfile, key = cache_key("authors|" .. ids)
     local cached = cache_get(key)
     if cached then
       return cached
     end
-    local result = json_query(sql)
+    local result = json_query(sql, dbfile)
     cache_set(key, result)
     return result
   end)
@@ -849,11 +813,18 @@ end
 
 function M.get_item_detail(item_id)
   return async_mod.run("zotero:db.get_item_detail", function()
-    local metadata = async_mod.await(M.get_item_metadata(item_id))
-    local authors = async_mod.await(M.get_item_authors(item_id))
-    local tags = async_mod.await(M.get_item_tags(item_id))
-    local notes = async_mod.await(M.get_item_notes(item_id))
-    local attachments = async_mod.await(M.get_item_attachments(item_id))
+    -- Launched before awaiting so the 5 queries run concurrently.
+    local t_metadata = M.get_item_metadata(item_id)
+    local t_authors = M.get_item_authors(item_id)
+    local t_tags = M.get_item_tags(item_id)
+    local t_notes = M.get_item_notes(item_id)
+    local t_attachments = M.get_item_attachments(item_id)
+
+    local metadata = async_mod.await(t_metadata)
+    local authors = async_mod.await(t_authors)
+    local tags = async_mod.await(t_tags)
+    local notes = async_mod.await(t_notes)
+    local attachments = async_mod.await(t_attachments)
 
     local detail = {}
     for _, m in ipairs(metadata) do
@@ -892,6 +863,24 @@ function M.get_item_key(item_id)
   end)
 end
 
+-- Bulk key lookup: one subprocess spawn instead of one per item. Returns a
+-- map of itemID -> key.
+function M.get_item_keys(item_ids)
+  return async_mod.run("zotero:db.get_item_keys", function()
+    if not item_ids or #item_ids == 0 then
+      return {}
+    end
+    local ids = table.concat(vim.tbl_map(tostring, item_ids), ",")
+    local sql = "SELECT itemID, key FROM items WHERE itemID IN (" .. ids .. ")"
+    local rows = json_query(sql)
+    local map = {}
+    for _, r in ipairs(rows) do
+      map[r.itemID] = r.key
+    end
+    return map
+  end)
+end
+
 function M.get_collection_key(collection_id)
   return async_mod.run("zotero:db.get_collection_key", function()
     return raw_query("SELECT key FROM collections WHERE collectionID = " .. tostring(collection_id))
@@ -900,6 +889,11 @@ end
 
 function M.get_editable_item(item_id)
   return async_mod.run("zotero:db.get_editable_item", function()
+    -- Launched before the header query so all four run concurrently.
+    local t_metadata = M.get_item_metadata(item_id)
+    local t_authors = M.get_item_authors(item_id)
+    local t_tags = M.get_item_tags(item_id)
+
     local sql = [[
       SELECT i.key, it.typeName AS itemType
       FROM items i
@@ -918,14 +912,14 @@ function M.get_editable_item(item_id)
       tags = {},
     }
 
-    local metadata = async_mod.await(M.get_item_metadata(item_id))
+    local metadata = async_mod.await(t_metadata)
     for _, m in ipairs(metadata) do
       if m.fieldName and m.value and m.value ~= "" then
         data.fields[m.fieldName] = m.value
       end
     end
 
-    local authors = async_mod.await(M.get_item_authors(item_id))
+    local authors = async_mod.await(t_authors)
     for _, a in ipairs(authors) do
       data.creators[#data.creators + 1] = {
         firstName = a.firstName or "",
@@ -934,7 +928,7 @@ function M.get_editable_item(item_id)
       }
     end
 
-    local tags = async_mod.await(M.get_item_tags(item_id))
+    local tags = async_mod.await(t_tags)
     for _, t in ipairs(tags) do
       if t.name and t.name ~= "" then
         data.tags[#data.tags + 1] = t.name
