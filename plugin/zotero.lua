@@ -15,7 +15,13 @@ vim.api.nvim_create_user_command("ZoteroDebug", function()
 end, { desc = "Zotero debug info" })
 
 vim.api.nvim_create_user_command("ZoteroImport", function(opts)
-  require("zotero.api").import_pdf(opts.args)
+  async_mod.run("zotero:cmd.import_pdf", function()
+    local ok = async_mod.await(require("zotero.api").import_pdf(opts.args))
+    if ok then
+      async_mod.to_main()
+      require("zotero.ui.items").fetch_and_render(true)
+    end
+  end)
 end, { desc = "Import a PDF into Zotero", nargs = 1, complete = "file" })
 
 vim.api.nvim_create_user_command("ZoteroMaxItems", function(opts)

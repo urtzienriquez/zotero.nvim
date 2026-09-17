@@ -59,27 +59,20 @@ function M.ping_async()
   end)
 end
 
---- Synchronous ping for call paths that must stay blocking.
-function M.ping()
-  local ok, result = pcall(function()
-    return M.ping_async():wait(2000)
-  end)
-  return ok and result == true
-end
-
 --- Poll a freshly-created item until it shows up in the synced DB copy, so the
 --- duplicate checks can run against the post-write state (replaces the old
 --- fixed `vim.defer_fn(600)` delay).
 local function wait_for_item(item_key, timeout_ms)
   local deadline = vim.uv.now() + (timeout_ms or 5000)
-  async_mod.sleep(300)
-  while vim.uv.now() < deadline and not async_mod.is_closing() do
+  while true do
     if async_mod.await(db.get_item_by_key(item_key)) then
       return true
     end
+    if vim.uv.now() >= deadline or async_mod.is_closing() then
+      return false
+    end
     async_mod.sleep(300)
   end
-  return false
 end
 
 function M.update_item(item_key, updates)
