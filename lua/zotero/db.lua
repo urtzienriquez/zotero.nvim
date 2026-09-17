@@ -340,36 +340,39 @@ local ACCENT_MAP = {
   ["ő"] = "o", ["Ő"] = "O", ["ű"] = "u", ["Ű"] = "U",
 }
 
-local ACCENT_PAIRS = {}
-for acc, ascii in pairs(ACCENT_MAP) do
-  ACCENT_PAIRS[#ACCENT_PAIRS + 1] = { acc, ascii }
+local ACCENT_MAP_VALUES
+do
+  local rows = {}
+  local rn = 0
+  for acc, ascii in pairs(ACCENT_MAP) do
+    rows[#rows + 1] = string.format("(%d,'%s','%s')", rn, types.escape_sql(acc), types.escape_sql(ascii))
+    rn = rn + 1
+  end
+  ACCENT_MAP_VALUES = table.concat(rows, ",")
 end
 
--- Cap nested REPLACE()s per scalar-subquery segment: chaining all ~70 as one
--- flat nested expression can exceed some sqlite3 builds' fixed parser stack
--- ("parser stack overflow"); wrapping each chunk in its own (SELECT ...)
--- keeps peak expression nesting bounded regardless of ACCENT_MAP's size.
-local DEACCENT_CHUNK_SIZE = 10
-
--- Memoized per column, since the small, fixed set of columns this is called
--- with (t.title, p.publicationTitle, ...) repeats every search word/keystroke.
+-- A recursive CTE, not nested REPLACE() calls: a flat ~70-deep chain can
+-- overflow some sqlite3 builds' parser stack (confirmed on Ubuntu 3.45.1).
 local _deaccent_sql_cache = {}
 local function deaccent_sql(column)
   local cached = _deaccent_sql_cache[column]
   if cached then
     return cached
   end
-  local expr = column
-  local i = 1
-  while i <= #ACCENT_PAIRS do
-    local chunk_end = math.min(i + DEACCENT_CHUNK_SIZE - 1, #ACCENT_PAIRS)
-    local chunk = expr
-    for j = i, chunk_end do
-      chunk = string.format("REPLACE(%s, '%s', '%s')", chunk, ACCENT_PAIRS[j][1], ACCENT_PAIRS[j][2])
-    end
-    expr = "(SELECT " .. chunk .. ")"
-    i = chunk_end + 1
-  end
+  local expr = string.format(
+    [[(
+      WITH RECURSIVE
+        accent_map(rn, acc, ascii) AS (VALUES %s),
+        steps(rn, val) AS (
+          SELECT -1, %s
+          UNION ALL
+          SELECT s.rn + 1, REPLACE(s.val, am.acc, am.ascii)
+          FROM steps s JOIN accent_map am ON am.rn = s.rn + 1
+        )
+      SELECT val FROM steps ORDER BY rn DESC LIMIT 1
+    )]],
+    ACCENT_MAP_VALUES, column
+  )
   _deaccent_sql_cache[column] = expr
   return expr
 end
