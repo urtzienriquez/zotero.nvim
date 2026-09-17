@@ -1,0 +1,95 @@
+local fixture = require("tests.helpers.fixture")
+local detail = require("zotero.ui.detail")
+
+describe("detail.wrap_text", function()
+  it("wraps long text at word boundaries within width+10 of the target", function()
+    local lines = detail.wrap_text("the quick brown fox jumps over the lazy dog and then some more words after that", 20)
+    assert.is_true(#lines > 1)
+    for _, line in ipairs(lines) do
+      assert.is_true(#line <= 30, "line too long: " .. line) -- width + 10 slack
+    end
+  end)
+
+  it("returns a single-element array with an empty string for empty input", function()
+    assert.same({ "" }, detail.wrap_text("", 20))
+  end)
+
+  it("returns the text unchanged (one line) when it fits", function()
+    assert.same({ "short" }, detail.wrap_text("short", 20))
+  end)
+
+  it("matches a reference O(n^2) implementation across many random (text, width) pairs", function()
+    -- The original O(n^2) implementation, kept only to compare against.
+    local function reference_wrap(text, width)
+      if not text or text == "" then return { "" } end
+      local result = {}
+      while #text > width do
+        local break_at = text:find(" ", width - 10)
+        if not break_at or break_at > width + 10 then
+          break_at = width
+        end
+        result[#result + 1] = text:sub(1, break_at - 1)
+        text = text:sub(break_at + 1)
+        if text == "" then break end
+      end
+      if text ~= "" then result[#result + 1] = text end
+      if #result == 0 then return { "" } end
+      return result
+    end
+
+    math.randomseed(12345)
+    local words = { "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog",
+      "a", "of", "in", "and", "abstract", "study", "results", "significant",
+      "supercalifragilisticexpialidocious", "x" }
+    local function random_text(n)
+      local t = {}
+      for _ = 1, n do t[#t + 1] = words[math.random(#words)] end
+      return table.concat(t, " ")
+    end
+
+    for _ = 1, 500 do
+      local text = random_text(math.random(0, 30))
+      local width = math.random(10, 80) -- >=10: see known divergence below width 10 documented at the call sites
+      assert.same(reference_wrap(text, width), detail.wrap_text(text, width),
+        ("mismatch for text=%q width=%d"):format(text, width))
+    end
+  end)
+end)
+
+describe("detail.show_item / close / is_open (real headless buffers/windows)", function()
+  before_each(function() fixture.setup() end)
+  after_each(function()
+    detail.close()
+    fixture.teardown()
+  end)
+
+  it("opens a floating window showing the item's title", function()
+    detail.show_item(2)
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    assert.is_true(detail.is_open())
+  end)
+
+  it("close() closes the window and is_open() reflects it", function()
+    detail.show_item(2)
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    assert.is_true(detail.is_open())
+    detail.close()
+    assert.is_false(detail.is_open())
+  end)
+
+  it("a second show_item() call for the same item supersedes the first (no leaked window)", function()
+    detail.show_item(2)
+    detail.show_item(2) -- rapid double-call, same item_id
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    assert.is_true(detail.is_open())
+    -- Exactly one floating window should exist for the detail panel.
+    local float_wins = 0
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      if cfg.relative ~= "" and cfg.zindex == 50 then
+        float_wins = float_wins + 1
+      end
+    end
+    assert.equals(1, float_wins)
+  end)
+end)

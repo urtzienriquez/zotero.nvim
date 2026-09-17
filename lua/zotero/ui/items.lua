@@ -133,7 +133,7 @@ local function format_items_compact(items)
       year = types.extract_year(item.date_str)
     end
     year = year or ""
-    local title = item.title or "(no title)"
+    local title = sql_str(item.title, "(no title)")
 
     local line
     if author ~= "" and year ~= "" then
