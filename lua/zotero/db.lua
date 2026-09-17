@@ -386,6 +386,21 @@ local function deaccent_sql(column)
   return sql
 end
 
+-- Same accent-folding as deaccent_sql, applied in Lua to a search word
+-- instead of in SQL to a column. deaccent_sql(col) alone only normalizes the
+-- DB *content* side of a LIKE comparison -- searching an accented term (e.g.
+-- "Andrés") against content stored without the accent (e.g. a creator named
+-- plain "Andres") would never match, since the query itself still carried
+-- the accent. Deaccenting the word too makes the fallback LIKE path
+-- accent-insensitive in both directions, matching what the FTS5 index path
+-- (via `remove_diacritics`) already does symmetrically.
+local function deaccent_word(w)
+  for acc, ascii in pairs(ACCENT_MAP) do
+    w = w:gsub(acc, ascii)
+  end
+  return w
+end
+
 -- Probes whether the local sqlite3 binary supports the FTS5 trigram
 -- tokenizer (with accent-folding), which the search index below relies on.
 -- Run once against a throwaway :memory: database -- never touches the real
@@ -606,30 +621,37 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
             clauses[#clauses + 1] = "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '"
               .. types.escape_sql(phrase) .. "')"
           else
+            -- Deaccent the query word too (not just the column) so this
+            -- fallback path is accent-insensitive in both directions, same
+            -- as the FTS5 index path: content stored WITHOUT an accent (e.g.
+            -- a creator named plain "Andres") now matches a query typed WITH
+            -- one ("Andrés"), and vice versa, since both sides are compared
+            -- after normalizing to the same deaccented form.
+            local deaccented_escaped = types.escape_sql(deaccent_word(word.raw))
             clauses[#clauses + 1] = [[(
-              (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. escaped .. [[%')
-              OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. escaped .. [[%')
+              (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
+              OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
               OR EXISTS (
                 SELECT 1 FROM itemCreators ic2
                 JOIN creators c2 ON ic2.creatorID = c2.creatorID
                 WHERE ic2.itemID = i.itemID
                 AND (c2.lastName LIKE '%]] .. escaped .. [[%'
                   OR c2.firstName LIKE '%]] .. escaped .. [[%'
-                  OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. escaped .. [[%'
-                  OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. escaped .. [[%')
+                  OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. deaccented_escaped .. [[%'
+                  OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
               )
               OR y.date_str LIKE ']] .. escaped .. [[%'
               OR EXISTS (
                 SELECT 1 FROM itemData id3
                 JOIN itemDataValues dv3 ON id3.valueID = dv3.valueID
                 WHERE id3.itemID = i.itemID AND id3.fieldID = ]] .. FIELD_IDS.abstractNote .. [[
-                AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. escaped .. [[%')
+                AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
               )
               OR EXISTS (
                 SELECT 1 FROM itemTags it3
                 JOIN tags t3 ON it3.tagID = t3.tagID
                 WHERE it3.itemID = i.itemID
-                AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. escaped .. [[%')
+                AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
               )
             )]]
           end
