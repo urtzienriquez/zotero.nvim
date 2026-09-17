@@ -134,6 +134,7 @@ function M.debug()
       local ok, dbb = pcall(require, "zotero.db")
       if ok then
         local stats = async_mod.await(dbb.get_stats())
+        async_mod.to_main()
         print(string.format("  collections: %d  items: %d", stats.collections, stats.items))
       end
     end)

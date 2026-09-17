@@ -17,7 +17,22 @@ local _render_version = nil
 -- render bail out instead of overwriting newer results.
 local _render_generation = 0
 
+-- Bumped whenever something get_display_lines() reads from `collections_data`
+-- or `expanded` changes shape (a fresh load, or an expand/collapse toggle).
+-- Lets get_display_lines() skip rebuilding the whole line list on pure
+-- cursor-navigation calls (get_collection_at_line/jump_section), which don't
+-- touch either of those.
+local _structure_version = 0
+local _display_lines_cache = nil
+local _display_lines_cache_key = nil
+
 local function get_display_lines()
+  local marked_count = items.get_marked_count()
+  local cache_key = table.concat({ _structure_version, total_item_count, trash_count, marked_count }, "|")
+  if _display_lines_cache and _display_lines_cache_key == cache_key then
+    return _display_lines_cache
+  end
+
   local lines = {}
   table.insert(lines, {
     line = "  My Library (" .. tostring(total_item_count) .. ")",
@@ -57,7 +72,6 @@ local function get_display_lines()
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
 
-  local marked_count = items.get_marked_count()
   table.insert(lines, {
     line = "  Marked Items (" .. tostring(marked_count) .. ")",
     collectionID = nil,
@@ -76,6 +90,8 @@ local function get_display_lines()
     is_trash = true,
   })
 
+  _display_lines_cache = lines
+  _display_lines_cache_key = cache_key
   return lines
 end
 
@@ -101,6 +117,8 @@ local function load_data()
       expanded[col.collectionID] = true
     end
   end
+
+  _structure_version = _structure_version + 1
 end
 
 function M.render()
@@ -123,8 +141,6 @@ function M.render()
     end
 
     M.refresh_display()
-
-    vim.api.nvim_buf_clear_namespace(buf, vim.api.nvim_create_namespace("zotero-collections"), 0, -1)
 
     M.set_keymaps()
 
@@ -276,6 +292,7 @@ local function on_enter()
     else
       expanded[entry.collectionID] = true
     end
+    _structure_version = _structure_version + 1
     M.refresh_display()
   end
 

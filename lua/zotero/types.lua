@@ -29,15 +29,20 @@ function M.truncate(str, max_width)
   if vim.fn.strdisplaywidth(str) <= max_width then
     return str
   end
-  local result = ""
-  for i = 1, vim.fn.strchars(str) do
-    local c = vim.fn.strcharpart(str, i - 1, 1)
-    if vim.fn.strdisplaywidth(result .. c .. "…") > max_width then
-      return result .. "…"
+  -- strdisplaywidth(strcharpart(str, 0, n) .. "…") is monotonic
+  -- non-decreasing in n, so binary-search the longest prefix that still fits
+  -- instead of growing the result one character (and one string
+  -- concatenation) at a time.
+  local lo, hi = 0, vim.fn.strchars(str)
+  while lo < hi do
+    local mid = math.ceil((lo + hi) / 2)
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(str, 0, mid) .. "…") > max_width then
+      hi = mid - 1
+    else
+      lo = mid
     end
-    result = result .. c
   end
-  return result .. "…"
+  return vim.fn.strcharpart(str, 0, lo) .. "…"
 end
 
 function M.pad_right(str, target_width)

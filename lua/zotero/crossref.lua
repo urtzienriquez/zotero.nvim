@@ -39,6 +39,15 @@ local function format_date(date_parts)
   end
 end
 
+-- Percent-encode everything except unreserved characters and "/", which is
+-- kept unescaped since DOIs use it as a path separator (e.g. "10.1000/xyz123")
+-- and CrossRef expects it that way in the URL path.
+local function url_encode(str)
+  return (str:gsub("[^%w%-%.%_%~%/]", function(c)
+    return string.format("%%%02X", c:byte())
+  end))
+end
+
 local function parse_authors(authors)
   if not authors or #authors == 0 then
     return {}
@@ -64,7 +73,7 @@ function M.fetch_metadata(doi)
       return nil, "no DOI provided"
     end
 
-    local url = "https://api.crossref.org/works/" .. doi:gsub("^10%.", "10.") .. "?mailto=zotero.nvim@user"
+    local url = "https://api.crossref.org/works/" .. url_encode(doi) .. "?mailto=zotero.nvim@user"
     local res = async_mod.http({ "-L", url })
     if res.code ~= 0 then
       return nil, "curl failed"

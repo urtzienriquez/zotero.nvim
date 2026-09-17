@@ -8,6 +8,10 @@ local float_buf = nil
 local backdrop_win = nil
 local backdrop_buf = nil
 local current_item_id = nil
+-- Bumped on every show_item() call so an in-flight render can detect it has
+-- been superseded even by a second call for the *same* item_id (e.g. rapid
+-- double-<CR>), not just a call for a different item.
+local render_generation = 0
 
 local PRIORITY_FIELDS = {
   title = "Title",
@@ -83,6 +87,8 @@ function M.show_item(item_id, type_name_hint)
   M.close()
 
   current_item_id = item_id
+  render_generation = render_generation + 1
+  local my_generation = render_generation
 
   async_mod.run("zotero:ui.detail.show", function()
     local detail = async_mod.await(db.get_item_detail(item_id))
@@ -216,8 +222,9 @@ function M.show_item(item_id, type_name_hint)
 
     async_mod.to_main()
 
-    -- A newer show_item() call may have superseded this one while awaiting.
-    if current_item_id ~= item_id then
+    -- A newer show_item() call (even for the same item_id) may have
+    -- superseded this one while awaiting.
+    if my_generation ~= render_generation then
       return
     end
 
@@ -362,24 +369,49 @@ function M.apply_highlights(buf)
   end
 end
 
+-- Replicates string.find's init-clamping rule (relative to a string of length
+-- `remaining_len`): >=1 used as-is, 0 treated as 1, negative counts back from
+-- the end and is then clamped up to 1 if still too small.
+local function clamp_find_init(remaining_len, rel_init)
+  if rel_init >= 1 then
+    return rel_init
+  elseif rel_init == 0 then
+    return 1
+  else
+    return math.max(remaining_len + rel_init + 1, 1)
+  end
+end
+
 function M.wrap_text(text, width)
   if not text or text == "" then
     return { "" }
   end
   local result = {}
-  while #text > width do
-    local break_at = text:find(" ", width - 10)
-    if not break_at or break_at > width + 10 then
-      break_at = width
+  local len = #text
+  -- Number of characters already emitted into `result`. Tracked as an offset
+  -- into the original `text` instead of re-slicing a shrinking `text`
+  -- variable each iteration, which previously copied the (shrinking)
+  -- remainder on every loop -- O(n^2) for long strings. `find` is called with
+  -- an absolute init position on the original `text` (see clamp_find_init)
+  -- instead of on a freshly-copied remaining substring, so the result is
+  -- identical to searching within the remainder.
+  local offset = 0
+  while len - offset > width do
+    local remaining_len = len - offset
+    local search_from = offset + clamp_find_init(remaining_len, width - 10)
+    local break_at = text:find(" ", search_from)
+    if not break_at or break_at - offset > width + 10 then
+      break_at = offset + width
     end
-    result[#result + 1] = text:sub(1, break_at - 1)
-    text = text:sub(break_at + 1)
-    if text == "" then
+    result[#result + 1] = text:sub(offset + 1, break_at - 1)
+    offset = break_at
+    if offset >= len then
       break
     end
   end
-  if text ~= "" then
-    result[#result + 1] = text
+  local rest = text:sub(offset + 1)
+  if rest ~= "" then
+    result[#result + 1] = rest
   end
   if #result == 0 then
     return { "" }

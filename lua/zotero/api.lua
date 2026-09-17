@@ -12,7 +12,8 @@ local function rand_str(len)
   local res = {}
   len = len or 32
   for _ = 1, len do
-    res[#res + 1] = chars:sub(math.random(#chars), math.random(#chars))
+    local i = math.random(#chars)
+    res[#res + 1] = chars:sub(i, i)
   end
   return table.concat(res)
 end
@@ -403,35 +404,46 @@ local function try_save_items(path, filename, title, collection_key)
   }
 
   local function do_save()
-    local out = async_mod.sys({
-      "curl", "-sS", "-X", "POST",
+    return async_mod.http({
+      "-X", "POST",
       BASE .. "/connector/saveItems",
       "-H", "Content-Type: application/json",
       "-d", async_mod.json_encode(payload),
     })
-    return out.stdout
   end
 
-  local ok, res = pcall(do_save)
-  if ok and res and res ~= "" then
-    local parsed_ok, parsed = pcall(async_mod.json_decode, res)
-    if parsed_ok and type(parsed) == "table" then
-      if parsed.error == "SESSION_EXISTS" then
-        session_id = rand_str(32)
-        payload.sessionID = session_id
-        local ok2, res2 = pcall(do_save)
-        if ok2 and res2 and res2 ~= "" then
-          local parsed2_ok, parsed2 = pcall(async_mod.json_decode, res2)
-          if parsed2_ok and type(parsed2) == "table" and parsed2.error then
-            async_mod.notify("zotero: import failed: " .. res2, vim.log.levels.ERROR)
-            return false
-          end
-        end
-      elseif parsed.error then
-        async_mod.notify("zotero: import failed: " .. res, vim.log.levels.ERROR)
-        return false
-      end
+  -- Returns (success, error_message, parsed_body). A curl transport failure
+  -- or a non-200 response is always treated as a failure, not just a JSON
+  -- body with an "error" field.
+  local function save_once()
+    local ok, res = pcall(do_save)
+    if not ok then
+      return false, "curl error: " .. tostring(res)
     end
+    if res.code ~= 0 then
+      return false, "curl error: " .. curl_fail(res)
+    end
+    local parsed_ok, parsed = pcall(async_mod.json_decode, res.body)
+    if res.http_code ~= 200 then
+      local msg = (parsed_ok and parsed and parsed.error) or ("HTTP " .. tostring(res.http_code))
+      return false, msg
+    end
+    if parsed_ok and type(parsed) == "table" and parsed.error then
+      return false, parsed.error, parsed
+    end
+    return true
+  end
+
+  local success, err, parsed = save_once()
+  if not success and parsed and parsed.error == "SESSION_EXISTS" then
+    session_id = rand_str(32)
+    payload.sessionID = session_id
+    success, err = save_once()
+  end
+
+  if not success then
+    async_mod.notify("zotero: import failed: " .. tostring(err), vim.log.levels.ERROR)
+    return false
   end
 
   async_mod.notify("zotero: imported '" .. filename .. "' (document only; add file via Zotero UI to get metadata)", vim.log.levels.INFO)

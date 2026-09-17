@@ -43,18 +43,14 @@ local function wal_mtime(path)
   return wstat and wstat.mtime.sec or 0
 end
 
--- Snapshot the live Zotero sqlite database into the private temp copy. Uses
--- sqlite's online backup so the copy includes un-checkpointed WAL writes; a
--- plain `cp` of the main file alone would miss them (and would capture a hot
--- WAL mid-write if done during a write, yielding a torn, "locked" copy). Falls
--- back to copying the main file (+ -wal sidecar) in case the live database
--- rejects a backup.
---
--- Zotero briefly holds a write lock right after the library is reopened (it
--- starts checkpointing/indexing), so `.backup` must arm a busy timeout and be
--- retried -- otherwise sqlite3 bails with SQLITE_BUSY instantly and we fall
--- into the unsafe raw-copy path, which all concurrent initial queries then
--- read as "database is locked".
+-- Snapshot the live Zotero sqlite database into the private temp copy: a
+-- plain `cp` of the main file plus its -wal sidecar (see comment below for why
+-- this deliberately does NOT use sqlite's online `.backup`). Copying the main
+-- file and the -wal file as two separate, non-atomic steps means a copy taken
+-- while Zotero is actively writing/checkpointing can in principle be torn; the
+-- mtime/wal-mtime staleness check in ensure_db_copy() re-copies on the next
+-- refresh, so a torn snapshot is at worst transiently stale rather than
+-- something callers keep reading indefinitely.
 local function db_backup(live, dest)
   -- v0.0.2 semantics, kept: one plain copy (main + WAL sidecar), guarded by
   -- mtime upstream. No `.backup`-busy ladder — the CLI `.backup` opens its own
@@ -193,6 +189,19 @@ function M.is_stale_since(version)
   return mtime ~= db_last_mtime or wmtime ~= (db_last_wal_mtime or 0) or data_version > (version or 0)
 end
 
+-- Coerce a value used as a bare (unquoted) numeric literal in a hand-built SQL
+-- string to an actual integer, raising instead of interpolating an arbitrary
+-- string if it isn't one. All current callers only ever pass IDs read back
+-- from this same database, so this should never trip in practice; it's a
+-- defensive boundary check against a future caller passing untrusted input.
+local function sql_int(n)
+  n = tonumber(n)
+  if not n then
+    error("zotero.db: expected a numeric id, got " .. tostring(n), 0)
+  end
+  return string.format("%d", n)
+end
+
 local function json_query(sql, dbfile)
   dbfile = dbfile or ensure_db_copy()
   if not dbfile then
@@ -321,11 +330,21 @@ local ACCENT_MAP = {
   ["ő"] = "o", ["Ő"] = "O", ["ű"] = "u", ["Ű"] = "U",
 }
 
+-- The generated SQL fragment only depends on `column`, and the small, fixed
+-- set of columns this is called with (t.title, p.publicationTitle, ...)
+-- repeats across every search word and every keystroke, so memoize it instead
+-- of rebuilding ~70 chained REPLACE() calls from scratch each time.
+local _deaccent_sql_cache = {}
 local function deaccent_sql(column)
+  local cached = _deaccent_sql_cache[column]
+  if cached then
+    return cached
+  end
   local sql = column
   for acc, ascii in pairs(ACCENT_MAP) do
     sql = string.format("REPLACE(%s, '%s', '%s')", sql, acc, ascii)
   end
+  _deaccent_sql_cache[column] = sql
   return sql
 end
 
@@ -430,7 +449,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     local params = {}
 
     if collection_id then
-      where = where .. " AND ci.collectionID = " .. tostring(collection_id)
+      where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
     end
 
     if search_term and search_term ~= "" then
@@ -655,7 +674,7 @@ function M.get_item_authors(item_id)
       FROM itemCreators ic
       JOIN creators c ON ic.creatorID = c.creatorID
       JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
-      WHERE ic.itemID = ]] .. tostring(item_id) .. [[
+      WHERE ic.itemID = ]] .. sql_int(item_id) .. [[
       ORDER BY ic.orderIndex
     ]]
     return json_query(sql)
@@ -667,7 +686,7 @@ function M.get_items_authors(item_ids)
     if not item_ids or #item_ids == 0 then
       return {}
     end
-    local ids = table.concat(vim.tbl_map(tostring, item_ids), ",")
+    local ids = table.concat(vim.tbl_map(sql_int, item_ids), ",")
     local sql = [[
       SELECT ic.itemID, c.firstName, c.lastName, c.fieldMode, ct.creatorType, ic.orderIndex
       FROM itemCreators ic
@@ -694,7 +713,7 @@ function M.get_item_metadata(item_id)
       FROM itemData id
       JOIN fields f ON id.fieldID = f.fieldID
       JOIN itemDataValues dv ON id.valueID = dv.valueID
-      WHERE id.itemID = ]] .. tostring(item_id) .. [[
+      WHERE id.itemID = ]] .. sql_int(item_id) .. [[
     ]]
     return json_query(sql)
   end)
@@ -706,7 +725,7 @@ function M.get_item_tags(item_id)
       SELECT t.name
       FROM itemTags itag
       JOIN tags t ON itag.tagID = t.tagID
-      WHERE itag.itemID = ]] .. tostring(item_id) .. [[
+      WHERE itag.itemID = ]] .. sql_int(item_id) .. [[
       ORDER BY t.name
     ]]
     return json_query(sql)
@@ -719,7 +738,7 @@ function M.get_item_notes(item_id)
       SELECT i.itemID, n.title, n.note
       FROM items i
       JOIN itemNotes n ON i.itemID = n.itemID
-      WHERE n.parentItemID = ]] .. tostring(item_id) .. [[
+      WHERE n.parentItemID = ]] .. sql_int(item_id) .. [[
       ORDER BY i.dateAdded
     ]]
     return json_query(sql)
@@ -739,7 +758,7 @@ function M.get_item_attachments(item_id)
         JOIN itemDataValues dv ON id.valueID = dv.valueID
         WHERE id.fieldID = 1
       ) t ON i.itemID = t.itemID
-      WHERE a.parentItemID = ]] .. tostring(item_id) .. [[
+      WHERE a.parentItemID = ]] .. sql_int(item_id) .. [[
       ORDER BY i.dateAdded
     ]]
     return json_query(sql)
@@ -759,7 +778,7 @@ function M.get_attachment(item_id)
         JOIN itemDataValues dv ON id.valueID = dv.valueID
         WHERE id.fieldID = 1
       ) t ON i.itemID = t.itemID
-      WHERE i.itemID = ]] .. tostring(item_id) .. [[
+      WHERE i.itemID = ]] .. sql_int(item_id) .. [[
     ]]
     local results = json_query(sql)
     return results[1]
@@ -847,19 +866,19 @@ end
 
 function M.get_item_type_name(item_type_id)
   return async_mod.run("zotero:db.get_item_type_name", function()
-    return raw_query("SELECT typeName FROM itemTypes WHERE itemTypeID = " .. tostring(item_type_id))
+    return raw_query("SELECT typeName FROM itemTypes WHERE itemTypeID = " .. sql_int(item_type_id))
   end)
 end
 
 function M.get_item_type_id(item_id)
   return async_mod.run("zotero:db.get_item_type_id", function()
-    return tonumber(raw_query("SELECT itemTypeID FROM items WHERE itemID = " .. tostring(item_id)))
+    return tonumber(raw_query("SELECT itemTypeID FROM items WHERE itemID = " .. sql_int(item_id)))
   end)
 end
 
 function M.get_item_key(item_id)
   return async_mod.run("zotero:db.get_item_key", function()
-    return raw_query("SELECT key FROM items WHERE itemID = " .. tostring(item_id))
+    return raw_query("SELECT key FROM items WHERE itemID = " .. sql_int(item_id))
   end)
 end
 
@@ -870,7 +889,7 @@ function M.get_item_keys(item_ids)
     if not item_ids or #item_ids == 0 then
       return {}
     end
-    local ids = table.concat(vim.tbl_map(tostring, item_ids), ",")
+    local ids = table.concat(vim.tbl_map(sql_int, item_ids), ",")
     local sql = "SELECT itemID, key FROM items WHERE itemID IN (" .. ids .. ")"
     local rows = json_query(sql)
     local map = {}
@@ -883,7 +902,7 @@ end
 
 function M.get_collection_key(collection_id)
   return async_mod.run("zotero:db.get_collection_key", function()
-    return raw_query("SELECT key FROM collections WHERE collectionID = " .. tostring(collection_id))
+    return raw_query("SELECT key FROM collections WHERE collectionID = " .. sql_int(collection_id))
   end)
 end
 
@@ -898,7 +917,7 @@ function M.get_editable_item(item_id)
       SELECT i.key, it.typeName AS itemType
       FROM items i
       JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-      WHERE i.itemID = ]] .. tostring(item_id)
+      WHERE i.itemID = ]] .. sql_int(item_id)
     local header = json_query(sql)
     if not header or #header == 0 then
       return nil
@@ -945,7 +964,7 @@ function M.get_item_type_fields(item_type_id)
       SELECT f.fieldName
       FROM itemTypeFields itf
       JOIN fields f ON itf.fieldID = f.fieldID
-      WHERE itf.itemTypeID = ]] .. tostring(item_type_id) .. [[
+      WHERE itf.itemTypeID = ]] .. sql_int(item_type_id) .. [[
       ORDER BY f.fieldName
     ]]
     return json_query(sql)
