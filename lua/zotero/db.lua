@@ -26,6 +26,17 @@ local _cache_wal_mtime = nil
 -- background re-render on reopen when nothing changed.
 local data_version = 0
 
+-- Precomputed FTS5 search index state (see ensure_search_index() below). The
+-- index lives only in the private DB copy, is rebuilt lazily (on first search
+-- after a copy refresh, not eagerly on every refresh), and is tracked against
+-- the same mtime epoch as the copy itself so it's automatically invalidated
+-- whenever db_backup() overwrites the copy from scratch.
+local _fts5_available = nil -- nil = unprobed this session
+local index_task = nil
+local index_epoch_mtime = nil
+local index_epoch_wal = nil
+local index_lock = async_mod.semaphore(1)
+
 --------------------------------------------------------------------------------
 -- Async helpers
 --------------------------------------------------------------------------------
@@ -235,6 +246,33 @@ local function raw_query(sql, dbfile)
   return vim.trim(out.stdout)
 end
 
+-- Like raw_query, but decodes the single scalar result as JSON. Used for
+-- combined-view queries where one sqlite3 spawn returns a single JSON blob
+-- built via json_object()/json_group_array() instead of a row array. Must NOT
+-- be run with "-json" (that mode re-escapes a json_object() column as an
+-- opaque JSON *string*, double-encoding it) -- raw/plain mode prints the
+-- column's TEXT value as-is, which is already the JSON we want.
+local function json_scalar_query(sql, dbfile)
+  dbfile = dbfile or ensure_db_copy()
+  if not dbfile then
+    return nil
+  end
+  local out = async_mod.sqlite(dbfile, { sql })
+  if out.code ~= 0 then
+    async_mod.notify("zotero: sqlite3 error: " .. (out.stderr ~= "" and out.stderr or "unknown"), vim.log.levels.ERROR)
+    return nil
+  end
+  local result = vim.trim(out.stdout)
+  if result == "" then
+    return nil
+  end
+  local ok, data = pcall(async_mod.json_decode, result)
+  if not ok then
+    return nil
+  end
+  return data
+end
+
 local FIELD_IDS = {
   title = 1,
   abstractNote = 2,
@@ -348,6 +386,93 @@ local function deaccent_sql(column)
   return sql
 end
 
+-- Probes whether the local sqlite3 binary supports the FTS5 trigram
+-- tokenizer (with accent-folding), which the search index below relies on.
+-- Run once against a throwaway :memory: database -- never touches the real
+-- copy -- and cached for the whole Neovim session, since the binary's
+-- capabilities can't change mid-session.
+local function detect_fts5()
+  if _fts5_available ~= nil then
+    return _fts5_available
+  end
+  local out = async_mod.sys({
+    "sqlite3", ":memory:",
+    "CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram');",
+  })
+  _fts5_available = out.code == 0
+  return _fts5_available
+end
+
+-- Builds (or reuses) a precomputed search index inside the private DB copy.
+-- One row per item, `body` = every column get_items' search matches against,
+-- pre-concatenated; `remove_diacritics 1` folds accents inside FTS5 itself,
+-- so the ~70-entry ACCENT_MAP/deaccent_sql chain is not needed on this path.
+-- A plain `body LIKE '%word%'` against a trigram-tokenized FTS5 table is
+-- itself index-accelerated (including for 1-2 character words, where FTS5's
+-- MATCH operator alone doesn't apply), so the caller can reuse the exact same
+-- operator/escaping the REPLACE-chain fallback already uses.
+--
+-- Rebuilt lazily: only when a search actually runs (not eagerly on every DB
+-- copy refresh), and only once per copy epoch -- tracked via
+-- index_epoch_mtime/index_epoch_wal against db_last_mtime/db_last_wal_mtime,
+-- mirroring the copy_task/copy_lock single-flight pattern in ensure_db_copy().
+-- Since db_backup() always overwrites the private copy from scratch, a real
+-- re-copy naturally invalidates the index epoch too -- no separate
+-- invalidation hook is needed.
+local function ensure_search_index(dbfile)
+  if not detect_fts5() then
+    return false
+  end
+  if index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0) then
+    return true
+  end
+  if not index_task then
+    index_task = async_mod.run("zotero:db-index-build", function()
+      index_lock:with(function()
+        if index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0) then
+          return
+        end
+        local build_sql = string.format(
+          [[
+          DROP TABLE IF EXISTS zn_search;
+          CREATE VIRTUAL TABLE zn_search USING fts5(itemid UNINDEXED, body, tokenize='trigram remove_diacritics 1');
+          INSERT INTO zn_search(itemid, body)
+          SELECT
+            i.itemID,
+            COALESCE(t.value,'') || ' ' || COALESCE(p.value,'') || ' ' || COALESCE(ab.value,'') || ' ' ||
+            COALESCE(dt.value,'') || ' ' || COALESCE(cr.names,'') || ' ' || COALESCE(tg.names,'')
+          FROM items i
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) t  ON t.itemID = i.itemID
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) p  ON p.itemID = i.itemID
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) ab ON ab.itemID = i.itemID
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) dt ON dt.itemID = i.itemID
+          LEFT JOIN (
+            SELECT ic.itemID, group_concat(c.firstName || ' ' || c.lastName, ' ') AS names
+            FROM itemCreators ic JOIN creators c ON ic.creatorID = c.creatorID GROUP BY ic.itemID
+          ) cr ON cr.itemID = i.itemID
+          LEFT JOIN (
+            SELECT it2.itemID, group_concat(tg2.name, ' ') AS names
+            FROM itemTags it2 JOIN tags tg2 ON it2.tagID = tg2.tagID GROUP BY it2.itemID
+          ) tg ON tg.itemID = i.itemID;
+          ]],
+          FIELD_IDS.title, FIELD_IDS.publicationTitle, FIELD_IDS.abstractNote, FIELD_IDS.date
+        )
+        local out = async_mod.sqlite(dbfile, { build_sql })
+        if out.code ~= 0 then
+          async_mod.notify("zotero: failed to build search index, falling back to slower search", vim.log.levels.WARN)
+          _fts5_available = false -- stop retrying every search this session
+          return
+        end
+        index_epoch_mtime = db_last_mtime
+        index_epoch_wal = db_last_wal_mtime or 0
+      end)
+    end)
+  end
+  async_mod.await(index_task)
+  index_task = nil
+  return index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0)
+end
+
 local ITEM_TYPES_FILTER = { 1, 3, 28 }
 
 local function item_type_filter()
@@ -455,37 +580,59 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     if search_term and search_term ~= "" then
       local words = {}
       for w in search_term:gmatch("%S+") do
-        words[#words + 1] = types.escape_sql(w)
+        words[#words + 1] = { raw = w, escaped = types.escape_sql(w) }
       end
       if #words > 0 then
+        -- Prefer the precomputed FTS5 trigram index (accent-folding built in,
+        -- no per-row REPLACE() chain) when it's available for this DB copy;
+        -- fall back to the REPLACE-chain LIKE clauses otherwise (older
+        -- sqlite3 builds without FTS5, a failed index build, or a word too
+        -- short for the trigram tokenizer to match at all via MATCH).
+        --
+        -- Must use MATCH, not LIKE, against the index: remove_diacritics only
+        -- folds accents for the tokenizer/MATCH path -- body is stored with
+        -- accents intact, so `body LIKE '%word%'` would NOT be
+        -- accent-insensitive (verified: LIKE misses "Andrés" when searching
+        -- "Andres", MATCH doesn't). The search term is wrapped as a quoted
+        -- FTS5 phrase so punctuation/operators in it are treated literally.
+        local search_dbfile = ensure_db_copy()
+        local use_index = search_dbfile and ensure_search_index(search_dbfile)
+
         local clauses = {}
-        for _, escaped in ipairs(words) do
-          clauses[#clauses + 1] = [[(
-            (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. escaped .. [[%')
-            OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. escaped .. [[%')
-            OR EXISTS (
-              SELECT 1 FROM itemCreators ic2
-              JOIN creators c2 ON ic2.creatorID = c2.creatorID
-              WHERE ic2.itemID = i.itemID
-              AND (c2.lastName LIKE '%]] .. escaped .. [[%'
-                OR c2.firstName LIKE '%]] .. escaped .. [[%'
-                OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. escaped .. [[%'
-                OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. escaped .. [[%')
-            )
-            OR y.date_str LIKE ']] .. escaped .. [[%'
-            OR EXISTS (
-              SELECT 1 FROM itemData id3
-              JOIN itemDataValues dv3 ON id3.valueID = dv3.valueID
-              WHERE id3.itemID = i.itemID AND id3.fieldID = ]] .. FIELD_IDS.abstractNote .. [[
-              AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. escaped .. [[%')
-            )
-            OR EXISTS (
-              SELECT 1 FROM itemTags it3
-              JOIN tags t3 ON it3.tagID = t3.tagID
-              WHERE it3.itemID = i.itemID
-              AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. escaped .. [[%')
-            )
-          )]]
+        for _, word in ipairs(words) do
+          local escaped = word.escaped
+          if use_index and vim.fn.strchars(word.raw) >= 3 then
+            local phrase = '"' .. word.raw:gsub('"', '""') .. '"'
+            clauses[#clauses + 1] = "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '"
+              .. types.escape_sql(phrase) .. "')"
+          else
+            clauses[#clauses + 1] = [[(
+              (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. escaped .. [[%')
+              OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. escaped .. [[%')
+              OR EXISTS (
+                SELECT 1 FROM itemCreators ic2
+                JOIN creators c2 ON ic2.creatorID = c2.creatorID
+                WHERE ic2.itemID = i.itemID
+                AND (c2.lastName LIKE '%]] .. escaped .. [[%'
+                  OR c2.firstName LIKE '%]] .. escaped .. [[%'
+                  OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. escaped .. [[%'
+                  OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. escaped .. [[%')
+              )
+              OR y.date_str LIKE ']] .. escaped .. [[%'
+              OR EXISTS (
+                SELECT 1 FROM itemData id3
+                JOIN itemDataValues dv3 ON id3.valueID = dv3.valueID
+                WHERE id3.itemID = i.itemID AND id3.fieldID = ]] .. FIELD_IDS.abstractNote .. [[
+                AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. escaped .. [[%')
+              )
+              OR EXISTS (
+                SELECT 1 FROM itemTags it3
+                JOIN tags t3 ON it3.tagID = t3.tagID
+                WHERE it3.itemID = i.itemID
+                AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. escaped .. [[%')
+              )
+            )]]
+          end
         end
         where = where .. " AND (" .. table.concat(clauses, " AND ") .. ")"
       end
@@ -832,30 +979,97 @@ end
 
 function M.get_item_detail(item_id)
   return async_mod.run("zotero:db.get_item_detail", function()
-    -- Launched before awaiting so the 5 queries run concurrently.
-    local t_metadata = M.get_item_metadata(item_id)
-    local t_authors = M.get_item_authors(item_id)
-    local t_tags = M.get_item_tags(item_id)
-    local t_notes = M.get_item_notes(item_id)
-    local t_attachments = M.get_item_attachments(item_id)
+    local id = sql_int(item_id)
+    -- One combined query (one sqlite3 spawn) instead of 5 separate spawns for
+    -- metadata/authors/tags/notes/attachments. Each sub-select below is the
+    -- same body as get_item_metadata/get_item_authors/get_item_tags/
+    -- get_item_notes/get_item_attachments, just wrapped for json_object().
+    local sql = [[
+      SELECT json_object(
+        'metadata', COALESCE((
+          SELECT json_group_array(json_object('fieldName', fieldName, 'value', value))
+          FROM (
+            SELECT f.fieldName AS fieldName, dv.value AS value
+            FROM itemData id
+            JOIN fields f ON id.fieldID = f.fieldID
+            JOIN itemDataValues dv ON id.valueID = dv.valueID
+            WHERE id.itemID = ]] .. id .. [[
+          )
+        ), json_array()),
+        'authors', COALESCE((
+          SELECT json_group_array(json_object(
+            'itemID', itemID, 'firstName', firstName, 'lastName', lastName,
+            'fieldMode', fieldMode, 'creatorType', creatorType, 'orderIndex', orderIndex
+          ))
+          FROM (
+            SELECT ic.itemID AS itemID, c.firstName AS firstName, c.lastName AS lastName,
+              c.fieldMode AS fieldMode, ct.creatorType AS creatorType, ic.orderIndex AS orderIndex
+            FROM itemCreators ic
+            JOIN creators c ON ic.creatorID = c.creatorID
+            JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
+            WHERE ic.itemID = ]] .. id .. [[
+            ORDER BY ic.orderIndex
+          )
+        ), json_array()),
+        'tags', COALESCE((
+          SELECT json_group_array(json_object('name', name))
+          FROM (
+            SELECT t.name AS name
+            FROM itemTags itag
+            JOIN tags t ON itag.tagID = t.tagID
+            WHERE itag.itemID = ]] .. id .. [[
+            ORDER BY t.name
+          )
+        ), json_array()),
+        'notes', COALESCE((
+          SELECT json_group_array(json_object('itemID', itemID, 'title', title, 'note', note))
+          FROM (
+            SELECT i.itemID AS itemID, n.title AS title, n.note AS note
+            FROM items i
+            JOIN itemNotes n ON i.itemID = n.itemID
+            WHERE n.parentItemID = ]] .. id .. [[
+            ORDER BY i.dateAdded
+          )
+        ), json_array()),
+        'attachments', COALESCE((
+          SELECT json_group_array(json_object(
+            'itemID', itemID, 'key', key, 'linkMode', linkMode,
+            'contentType', contentType, 'path', path, 'title', title
+          ))
+          FROM (
+            SELECT i.itemID AS itemID, i.key AS key, a.linkMode AS linkMode, a.contentType AS contentType,
+              a.path AS path, COALESCE(t.value, a.path) AS title
+            FROM items i
+            JOIN itemAttachments a ON i.itemID = a.itemID
+            LEFT JOIN (
+              SELECT id.itemID, dv.value
+              FROM itemData id
+              JOIN itemDataValues dv ON id.valueID = dv.valueID
+              WHERE id.fieldID = 1
+            ) t ON i.itemID = t.itemID
+            WHERE a.parentItemID = ]] .. id .. [[
+            ORDER BY i.dateAdded
+          )
+        ), json_array())
+      )
+    ]]
 
-    local metadata = async_mod.await(t_metadata)
-    local authors = async_mod.await(t_authors)
-    local tags = async_mod.await(t_tags)
-    local notes = async_mod.await(t_notes)
-    local attachments = async_mod.await(t_attachments)
+    local data = json_scalar_query(sql)
+    if not data then
+      return { metadata = {}, authors = {}, tags = {}, notes = {}, attachments = {} }
+    end
 
     local detail = {}
-    for _, m in ipairs(metadata) do
+    for _, m in ipairs(data.metadata or {}) do
       detail[m.fieldName] = m.value
     end
 
     return {
       metadata = detail,
-      authors = authors,
-      tags = tags,
-      notes = notes,
-      attachments = attachments,
+      authors = data.authors or {},
+      tags = data.tags or {},
+      notes = data.notes or {},
+      attachments = data.attachments or {},
     }
   end)
 end
@@ -908,38 +1122,73 @@ end
 
 function M.get_editable_item(item_id)
   return async_mod.run("zotero:db.get_editable_item", function()
-    -- Launched before the header query so all four run concurrently.
-    local t_metadata = M.get_item_metadata(item_id)
-    local t_authors = M.get_item_authors(item_id)
-    local t_tags = M.get_item_tags(item_id)
-
+    local id = sql_int(item_id)
+    -- One combined query (one sqlite3 spawn) instead of 4 separate spawns for
+    -- the header/metadata/authors/tags. A missing item naturally yields zero
+    -- outer rows, so json_scalar_query returns nil, matching the old
+    -- "header == 0 rows" nil-return case.
     local sql = [[
-      SELECT i.key, it.typeName AS itemType
+      SELECT json_object(
+        'key', i.key,
+        'itemType', it.typeName,
+        'fields', COALESCE((
+          SELECT json_group_array(json_object('fieldName', fieldName, 'value', value))
+          FROM (
+            SELECT f.fieldName AS fieldName, dv.value AS value
+            FROM itemData id
+            JOIN fields f ON id.fieldID = f.fieldID
+            JOIN itemDataValues dv ON id.valueID = dv.valueID
+            WHERE id.itemID = i.itemID
+          )
+        ), json_array()),
+        'creators', COALESCE((
+          SELECT json_group_array(json_object(
+            'firstName', firstName, 'lastName', lastName, 'creatorType', creatorType
+          ))
+          FROM (
+            SELECT c.firstName AS firstName, c.lastName AS lastName, ct.creatorType AS creatorType
+            FROM itemCreators ic
+            JOIN creators c ON ic.creatorID = c.creatorID
+            JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
+            WHERE ic.itemID = i.itemID
+            ORDER BY ic.orderIndex
+          )
+        ), json_array()),
+        'tags', COALESCE((
+          SELECT json_group_array(json_object('name', name))
+          FROM (
+            SELECT t.name AS name
+            FROM itemTags itag
+            JOIN tags t ON itag.tagID = t.tagID
+            WHERE itag.itemID = i.itemID
+            ORDER BY t.name
+          )
+        ), json_array())
+      )
       FROM items i
       JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-      WHERE i.itemID = ]] .. sql_int(item_id)
-    local header = json_query(sql)
-    if not header or #header == 0 then
+      WHERE i.itemID = ]] .. id
+
+    local raw = json_scalar_query(sql)
+    if not raw then
       return nil
     end
 
     local data = {
-      key = header[1].key,
-      itemType = header[1].itemType,
+      key = raw.key,
+      itemType = raw.itemType,
       fields = {},
       creators = {},
       tags = {},
     }
 
-    local metadata = async_mod.await(t_metadata)
-    for _, m in ipairs(metadata) do
+    for _, m in ipairs(raw.fields or {}) do
       if m.fieldName and m.value and m.value ~= "" then
         data.fields[m.fieldName] = m.value
       end
     end
 
-    local authors = async_mod.await(t_authors)
-    for _, a in ipairs(authors) do
+    for _, a in ipairs(raw.creators or {}) do
       data.creators[#data.creators + 1] = {
         firstName = a.firstName or "",
         lastName = a.lastName or "",
@@ -947,8 +1196,7 @@ function M.get_editable_item(item_id)
       }
     end
 
-    local tags = async_mod.await(t_tags)
-    for _, t in ipairs(tags) do
+    for _, t in ipairs(raw.tags or {}) do
       if t.name and t.name ~= "" then
         data.tags[#data.tags + 1] = t.name
       end
