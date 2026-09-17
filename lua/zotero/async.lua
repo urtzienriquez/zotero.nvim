@@ -18,21 +18,12 @@ local function cfg()
   return require("zotero.config").get()
 end
 
---- Run an async function as a named task. Returns a vim.async Task handle.
 function M.run(name, fn)
   return async.run(name, fn)
 end
 
 function M.await(...)
   return async.await(...)
-end
-
-function M.pawait(...)
-  return async.pawait(...)
-end
-
-function M.checkpoint()
-  return async.checkpoint()
 end
 
 function M.is_closing()
@@ -43,26 +34,12 @@ function M.sleep(ms)
   return async.sleep(ms)
 end
 
-function M.iter(tasks)
-  return async.iter(tasks)
-end
-
-function M.wrap(argc, fn)
-  return async.wrap(argc, fn)
-end
-
 function M.semaphore(n)
   return async.semaphore(n)
 end
 
-function M.timeout(ms, task)
-  return async.timeout(ms, task)
-end
-
---- Awaited subprocess. Returns { code, stdout, stderr } where code is the exit
---- status. Raises if the process could not be started or was killed. Runs via
---- vim.system so the event loop is never blocked. Done in closure form because
---- the arg-position await form would replace {opts} with the callback.
+-- Closure form because the arg-position await form would replace {opts} with
+-- the callback.
 function M.sys(cmd, opts)
   opts = opts or {}
   local sys_opts = vim.tbl_extend("force", {
@@ -82,31 +59,17 @@ function M.sys(cmd, opts)
   }
 end
 
---- Awaited curl request. args are curl arguments without the leading "curl";
---- add "-X", "-d", "-o" etc. as usual. A trailing "%{http_code}" is appended to
---- stdout by default (and peeled off), unless args already contain "-w" (raw
---- body mode). Returns { code, body, http_code } where code is curl's exit status.
+-- args are curl arguments without the leading "curl"; add "-X", "-d", "-o"
+-- etc. as usual. A trailing "%{http_code}" is appended to stdout and peeled
+-- off. Returns { code, body, http_code } where code is curl's exit status.
 function M.http(args, opts)
   opts = opts or {}
-  local has_w = false
-  for _, a in ipairs(args) do
-    if a == "-w" then
-      has_w = true
-      break
-    end
-  end
-  local cmd = { "curl", "-sS" }
-  if not has_w then
-    vim.list_extend(cmd, { "-w", "%{http_code}" })
-  end
+  local cmd = { "curl", "-sS", "-w", "%{http_code}" }
   vim.list_extend(cmd, args)
   local out = M.sys(cmd, {
     timeout = opts.timeout or cfg().http_timeout or cfg().process_timeout or 60000,
   })
   local stdout = out.stdout
-  if has_w then
-    return { code = out.code, body = stdout, http_code = 0, stderr = out.stderr }
-  end
   local tail = stdout:sub(-3)
   if tail:match("^%d%d%d$") then
     if #stdout == 3 then
@@ -127,14 +90,12 @@ function M.http(args, opts)
   return { code = out.code, body = stdout:gsub("%s+$", ""), http_code = 0, stderr = out.stderr }
 end
 
---- Awaited sqlite3 query. Returns { code, stdout, stderr }.
 function M.sqlite(db_path, args)
   local cmd = { "sqlite3", db_path }
   vim.list_extend(cmd, args)
   return M.sys(cmd)
 end
 
---- Awaited copy of the live Zotero sqlite file to a private temp copy.
 function M.copy(src, dst)
   return M.sys({ "cp", src, dst })
 end
@@ -144,29 +105,12 @@ function M.to_main()
   async.await(1, vim.schedule)
 end
 
---- Synchronously wait for a Task (used by call paths that must stay sync).
-function M.sync(task, timeout)
-  return task:wait(timeout or cfg().wait_timeout or 30000)
-end
-
---- JSON decoding safe in fast event contexts (i.e. right after an awaited
---- I/O op inside a task, where vim.fn.json_decode is rejected). Prefers the
---- pure-Lua vim.json and falls back to vim.fn.json_decode on the main thread.
 function M.json_decode(s)
-  if vim.json and vim.json.decode then
-    return vim.json.decode(s)
-  end
-  M.to_main()
-  return vim.fn.json_decode(s)
+  return vim.json.decode(s)
 end
 
---- JSON encoding safe in fast event contexts (see M.json_decode).
 function M.json_encode(obj)
-  if vim.json and vim.json.encode then
-    return vim.json.encode(obj)
-  end
-  M.to_main()
-  return vim.fn.json_encode(obj)
+  return vim.json.encode(obj)
 end
 
 --- vim.notify that is safe to call while a task is resumed in a fast event
@@ -181,7 +125,6 @@ function M.notify(msg, level, opts)
   vim.notify(msg, level or vim.log.levels.INFO, opts)
 end
 
---- Awaited vim.ui.select invocation; returns (choice, idx).
 function M.select(items, opts)
   return async.await(function(done)
     vim.ui.select(items, opts, done)

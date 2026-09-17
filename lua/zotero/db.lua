@@ -26,20 +26,15 @@ local _cache_wal_mtime = nil
 -- background re-render on reopen when nothing changed.
 local data_version = 0
 
--- Precomputed FTS5 search index state (see ensure_search_index() below). The
--- index lives only in the private DB copy, is rebuilt lazily (on first search
--- after a copy refresh, not eagerly on every refresh), and is tracked against
--- the same mtime epoch as the copy itself so it's automatically invalidated
--- whenever db_backup() overwrites the copy from scratch.
+-- Precomputed FTS5 search index state (see ensure_search_index() below).
+-- Rebuilt lazily on first search after a copy refresh, and tracked against
+-- the same mtime epoch as the copy so it's invalidated whenever db_backup()
+-- overwrites the copy from scratch.
 local _fts5_available = nil -- nil = unprobed this session
 local index_task = nil
 local index_epoch_mtime = nil
 local index_epoch_wal = nil
 local index_lock = async_mod.semaphore(1)
-
---------------------------------------------------------------------------------
--- Async helpers
---------------------------------------------------------------------------------
 
 -- mtime (seconds) of the sqlite -wal sidecar, or 0 when there is none. Zotero
 -- runs its database in WAL mode, where fresh writes land in the -wal file until
@@ -54,21 +49,14 @@ local function wal_mtime(path)
   return wstat and wstat.mtime.sec or 0
 end
 
--- Snapshot the live Zotero sqlite database into the private temp copy: a
--- plain `cp` of the main file plus its -wal sidecar (see comment below for why
--- this deliberately does NOT use sqlite's online `.backup`). Copying the main
--- file and the -wal file as two separate, non-atomic steps means a copy taken
--- while Zotero is actively writing/checkpointing can in principle be torn; the
+-- Plain `cp` of the main file plus its -wal sidecar -- deliberately not
+-- sqlite's online `.backup`, whose CLI form opens its own source connection
+-- that ignores the shell `.timeout`, so retrying it only sleeps through a
+-- lock it can never wait out. Copying the two files as separate, non-atomic
+-- steps means a copy taken mid-write can in principle be torn; the
 -- mtime/wal-mtime staleness check in ensure_db_copy() re-copies on the next
--- refresh, so a torn snapshot is at worst transiently stale rather than
--- something callers keep reading indefinitely.
+-- refresh, so a torn snapshot is at worst transiently stale.
 local function db_backup(live, dest)
-  -- v0.0.2 semantics, kept: one plain copy (main + WAL sidecar), guarded by
-  -- mtime upstream. No `.backup`-busy ladder — the CLI `.backup` opens its own
-  -- source connection that ignores the shell `.timeout`, so retrying it only
-  -- sleeps through a lock it can never wait out (byte-proven). A library at
-  -- rest (the normal open-library case) copies consistently on the first
-  -- attempt, so this returns immediately.
   pcall(vim.uv.fs_unlink, dest)
   pcall(vim.uv.fs_unlink, dest .. "-wal")
   pcall(vim.uv.fs_unlink, dest .. "-shm")
@@ -102,11 +90,8 @@ local function ensure_db_copy()
     return db_copy
   end
   -- Single-flight: concurrent callers share one copy task and *all* await it,
-  -- so the copy always completes before any query runs and the first render
-  -- never bakes a torn snapshot. Awaiting here is what fixes the v0.0.2 ->
-  -- async migration regression (ordered copy) without the latency: the copy
-  -- itself is a single plain `cp` (v0.0.2 speed, immediate at rest), no
-  -- busy/validation sleep ladders.
+  -- so the copy always completes before any query runs and no caller bakes a
+  -- torn snapshot.
   if not copy_task then
     local path_ = path
     copy_task = async_mod.run("zotero:db-copy", function()
@@ -182,8 +167,6 @@ function M.invalidate_cache()
   data_version = data_version + 1
 end
 
--- Monotonic version of the currently copied DB data. Bumped on cache
--- invalidation and whenever a fresh copy of the live database is made.
 function M.get_data_version()
   return data_version
 end
@@ -334,37 +317,26 @@ local FIELD_IDS = {
 }
 
 local ACCENT_MAP = {
-  -- Carons (Czech/Slovak/Croatian/Slovenian)
   ["š"] = "s", ["č"] = "c", ["ž"] = "z", ["ř"] = "r",
   ["ď"] = "d", ["ť"] = "t", ["ň"] = "n",
   ["Š"] = "S", ["Č"] = "C", ["Ž"] = "Z", ["Ř"] = "R",
   ["Ď"] = "D", ["Ť"] = "T", ["Ň"] = "N",
-  -- Cedillas (Turkish/Romanian/Catalan)
   ["ş"] = "s", ["Ş"] = "S", ["ç"] = "c", ["Ç"] = "C",
-  -- Tilde
   ["ñ"] = "n", ["Ñ"] = "N", ["ã"] = "a", ["Ã"] = "A", ["õ"] = "o", ["Õ"] = "O",
-  -- Acute/Grave/Circumflex
   ["á"] = "a", ["à"] = "a", ["â"] = "a", ["Á"] = "A", ["À"] = "A", ["Â"] = "A",
   ["é"] = "e", ["è"] = "e", ["ê"] = "e", ["É"] = "E", ["È"] = "E", ["Ê"] = "E",
   ["í"] = "i", ["ì"] = "i", ["î"] = "i", ["Í"] = "I", ["Ì"] = "I", ["Î"] = "I",
   ["ó"] = "o", ["ò"] = "o", ["ô"] = "o", ["Ó"] = "O", ["Ò"] = "O", ["Ô"] = "O",
   ["ú"] = "u", ["ù"] = "u", ["û"] = "u", ["Ú"] = "U", ["Ù"] = "U", ["Û"] = "U",
   ["ý"] = "y", ["Ý"] = "Y",
-  -- Umlaut/Diaeresis
   ["ä"] = "a", ["Ä"] = "A", ["ë"] = "e", ["Ë"] = "E",
   ["ï"] = "i", ["Ï"] = "I", ["ö"] = "o", ["Ö"] = "O", ["ü"] = "u", ["Ü"] = "U",
   ["ÿ"] = "y",
-  -- Ring
   ["å"] = "a", ["Å"] = "A",
-  -- Slash
   ["ø"] = "o", ["Ø"] = "O", ["ł"] = "l", ["Ł"] = "L",
-  -- Eth/Thorn
   ["ð"] = "d", ["Ð"] = "D", ["þ"] = "th", ["Þ"] = "TH",
-  -- Dutch ĳ
   ["ĳ"] = "ij", ["Ĳ"] = "IJ",
-  -- Breve
   ["ă"] = "a", ["Ă"] = "A",
-  -- Double acute
   ["ő"] = "o", ["Ő"] = "O", ["ű"] = "u", ["Ű"] = "U",
 }
 
@@ -386,14 +358,9 @@ local function deaccent_sql(column)
   return sql
 end
 
--- Same accent-folding as deaccent_sql, applied in Lua to a search word
--- instead of in SQL to a column. deaccent_sql(col) alone only normalizes the
--- DB *content* side of a LIKE comparison -- searching an accented term (e.g.
--- "Andrés") against content stored without the accent (e.g. a creator named
--- plain "Andres") would never match, since the query itself still carried
--- the accent. Deaccenting the word too makes the fallback LIKE path
--- accent-insensitive in both directions, matching what the FTS5 index path
--- (via `remove_diacritics`) already does symmetrically.
+-- Same folding as deaccent_sql, applied to a search word instead of a
+-- column, so the fallback LIKE path is accent-insensitive in both
+-- directions (deaccent_sql(col) alone only normalizes the content side).
 local function deaccent_word(w)
   for acc, ascii in pairs(ACCENT_MAP) do
     w = w:gsub(acc, ascii)
@@ -418,22 +385,13 @@ local function detect_fts5()
   return _fts5_available
 end
 
--- Builds (or reuses) a precomputed search index inside the private DB copy.
--- One row per item, `body` = every column get_items' search matches against,
--- pre-concatenated; `remove_diacritics 1` folds accents inside FTS5 itself,
--- so the ~70-entry ACCENT_MAP/deaccent_sql chain is not needed on this path.
--- A plain `body LIKE '%word%'` against a trigram-tokenized FTS5 table is
--- itself index-accelerated (including for 1-2 character words, where FTS5's
--- MATCH operator alone doesn't apply), so the caller can reuse the exact same
--- operator/escaping the REPLACE-chain fallback already uses.
---
--- Rebuilt lazily: only when a search actually runs (not eagerly on every DB
--- copy refresh), and only once per copy epoch -- tracked via
--- index_epoch_mtime/index_epoch_wal against db_last_mtime/db_last_wal_mtime,
--- mirroring the copy_task/copy_lock single-flight pattern in ensure_db_copy().
--- Since db_backup() always overwrites the private copy from scratch, a real
--- re-copy naturally invalidates the index epoch too -- no separate
--- invalidation hook is needed.
+-- Builds (or reuses) a precomputed FTS5 trigram search index inside the
+-- private DB copy: one row per item, `body` = every column get_items
+-- searches, pre-concatenated, with accents folded in by `remove_diacritics`.
+-- Rebuilt lazily (only when a search actually runs, once per copy epoch),
+-- mirroring the copy_task/copy_lock single-flight pattern in
+-- ensure_db_copy() -- and since db_backup() always overwrites the copy from
+-- scratch, a real re-copy invalidates the index epoch automatically.
 local function ensure_search_index(dbfile)
   if not detect_fts5() then
     return false
@@ -500,8 +458,8 @@ end
 
 local function not_child(t)
   local p = t and (t .. ".") or ""
-  -- Exclude items that are children (have a parentItemID)
-  -- This allows regular items AND standalone attachments/notes/annotations
+  -- Allows regular items AND standalone attachments/notes/annotations --
+  -- only excludes ones that are children of another item.
   return p .. "itemID NOT IN (SELECT itemID FROM itemAttachments WHERE parentItemID IS NOT NULL)"
     .. " AND " .. p .. "itemID NOT IN (SELECT itemID FROM itemNotes WHERE parentItemID IS NOT NULL)"
     .. " AND " .. p .. "itemID NOT IN (SELECT itemID FROM itemAnnotations WHERE parentItemID IS NOT NULL)"
@@ -583,6 +541,23 @@ function M.get_collections()
   end)
 end
 
+local function sort_order(sort_by, sort_dir)
+  local order = "i.itemID"
+  if sort_by == "title" then
+    order = "t.title COLLATE NOCASE DESC"
+  elseif sort_by == "year" then
+    order = "y.year DESC, t.title COLLATE NOCASE"
+  elseif sort_by == "type" then
+    order = "it.typeName DESC"
+  elseif sort_by == "dateAdded" then
+    order = "i.dateAdded DESC"
+  end
+  if sort_dir == "asc" then
+    order = order:gsub(" DESC", "") .. " ASC"
+  end
+  return order
+end
+
 function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override)
   return async_mod.run("zotero:db.get_items", function()
     local where = not_child("i") .. " AND " .. not_trashed()
@@ -598,18 +573,12 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
         words[#words + 1] = { raw = w, escaped = types.escape_sql(w) }
       end
       if #words > 0 then
-        -- Prefer the precomputed FTS5 trigram index (accent-folding built in,
-        -- no per-row REPLACE() chain) when it's available for this DB copy;
-        -- fall back to the REPLACE-chain LIKE clauses otherwise (older
-        -- sqlite3 builds without FTS5, a failed index build, or a word too
-        -- short for the trigram tokenizer to match at all via MATCH).
-        --
-        -- Must use MATCH, not LIKE, against the index: remove_diacritics only
-        -- folds accents for the tokenizer/MATCH path -- body is stored with
-        -- accents intact, so `body LIKE '%word%'` would NOT be
-        -- accent-insensitive (verified: LIKE misses "Andrés" when searching
-        -- "Andres", MATCH doesn't). The search term is wrapped as a quoted
-        -- FTS5 phrase so punctuation/operators in it are treated literally.
+        -- Prefer the FTS5 index when available; fall back to the
+        -- REPLACE-chain LIKE clauses for older sqlite3 builds, a failed
+        -- index build, or a word too short for trigram MATCH. Must use
+        -- MATCH (not LIKE) against the index: remove_diacritics only folds
+        -- accents for the MATCH/tokenizer path, not LIKE. Wrapped as a
+        -- quoted FTS5 phrase so punctuation/operators are treated literally.
         local search_dbfile = ensure_db_copy()
         local use_index = search_dbfile and ensure_search_index(search_dbfile)
 
@@ -621,12 +590,8 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
             clauses[#clauses + 1] = "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '"
               .. types.escape_sql(phrase) .. "')"
           else
-            -- Deaccent the query word too (not just the column) so this
-            -- fallback path is accent-insensitive in both directions, same
-            -- as the FTS5 index path: content stored WITHOUT an accent (e.g.
-            -- a creator named plain "Andres") now matches a query typed WITH
-            -- one ("Andrés"), and vice versa, since both sides are compared
-            -- after normalizing to the same deaccented form.
+            -- Deaccent the query word too, not just the column, so this
+            -- fallback stays accent-insensitive in both directions.
             local deaccented_escaped = types.escape_sql(deaccent_word(word.raw))
             clauses[#clauses + 1] = [[(
               (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
@@ -660,20 +625,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       end
     end
 
-    local order = "i.itemID"
-    if sort_by == "title" then
-      order = "t.title COLLATE NOCASE DESC"
-    elseif sort_by == "year" then
-      order = "y.year DESC, t.title COLLATE NOCASE"
-    elseif sort_by == "type" then
-      order = "it.typeName DESC"
-    elseif sort_by == "dateAdded" then
-      order = "i.dateAdded DESC"
-    end
-
-    if sort_dir == "asc" then
-      order = order:gsub(" DESC", "") .. " ASC"
-    end
+    local order = sort_order(sort_by, sort_dir)
 
     local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
 
@@ -733,20 +685,7 @@ end
 
 function M.get_trash_items(sort_by, sort_dir, limit_override)
   return async_mod.run("zotero:db.get_trash_items", function()
-    local order = "i.itemID"
-    if sort_by == "title" then
-      order = "t.title COLLATE NOCASE DESC"
-    elseif sort_by == "year" then
-      order = "y.year DESC, t.title COLLATE NOCASE"
-    elseif sort_by == "type" then
-      order = "it.typeName DESC"
-    elseif sort_by == "dateAdded" then
-      order = "i.dateAdded DESC"
-    end
-
-    if sort_dir == "asc" then
-      order = order:gsub(" DESC", "") .. " ASC"
-    end
+    local order = sort_order(sort_by, sort_dir)
 
     local limit = limit_override or cfg().max_items
 

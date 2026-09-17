@@ -55,7 +55,6 @@ function M.fuzzy_find()
     local col_id = require("zotero.ui.collections").get_selected_collection_id()
     local items = col_id and async_mod.await(db.get_items(col_id)) or async_mod.await(db.search_global(""))
 
-    -- load authors
     if #items > 0 then
       local item_ids = vim.tbl_map(function(i) return i.itemID end, items)
       local all_creators = async_mod.await(db.get_items_authors(item_ids))

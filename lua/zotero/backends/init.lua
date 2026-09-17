@@ -26,6 +26,10 @@ function M.search_items(items, on_done)
     end)
     return
   end
+  if not items or #items == 0 then
+    async_mod.notify("zotero: no items to search", vim.log.levels.INFO)
+    return
+  end
   local ok, mod = pcall(require, "zotero.backends." .. backend)
   if not ok then
     async_mod.notify("zotero: backend '" .. backend .. "' not found", vim.log.levels.ERROR)

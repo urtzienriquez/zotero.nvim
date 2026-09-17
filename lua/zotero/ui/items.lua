@@ -105,6 +105,18 @@ local function get_active_columns()
   return cfg.columns or { "#", "title", "authors", "year", "type" }
 end
 
+local function empty_message()
+  if search_term ~= "" then
+    return "  (no items match search)"
+  elseif is_trash_mode then
+    return "  (trash is empty)"
+  elseif current_collection_id then
+    return "  (no items in this collection)"
+  else
+    return "  (no items in library)"
+  end
+end
+
 local function format_items_compact(items)
   local lines = {}
   _compact_hl_regions = {}
@@ -167,15 +179,7 @@ local function format_items_compact(items)
   end
 
   if #items == 0 then
-    if search_term ~= "" then
-      table.insert(lines, "  (no items match search)")
-    elseif is_trash_mode then
-      table.insert(lines, "  (trash is empty)")
-    elseif current_collection_id then
-      table.insert(lines, "  (no items in this collection)")
-    else
-      table.insert(lines, "  (no items in library)")
-    end
+    table.insert(lines, empty_message())
   end
 
   return lines
@@ -266,7 +270,6 @@ local function format_items_table(items)
     -- Only title/authors expand or contract; the column metadata
     -- (#, key, year, journal, dateAdded, type) keeps its fixed width.
     if fixed_total + flex_total() <= content_budget then
-      -- wide: grow title/authors from their preferred minimum to fill
       local surplus = content_budget - fixed_total - flex_total()
       local w1 = (flex.title and flex.title * 2) or 0
       local w2 = (flex.authors and flex.authors) or 0
@@ -280,8 +283,6 @@ local function format_items_table(items)
         widths.authors = flex.authors + s2
       end
     else
-      -- narrow: start from the preferred minimum and shrink title/authors
-      -- (and only them) until the table fits the window
       for k, v in pairs(flex) do
         if widths[k] then
           widths[k] = v
@@ -345,15 +346,7 @@ local function format_items_table(items)
   end
 
   if #items == 0 then
-    if search_term ~= "" then
-      table.insert(lines, "  (no items match search)")
-    elseif is_trash_mode then
-      table.insert(lines, "  (trash is empty)")
-    elseif current_collection_id then
-      table.insert(lines, "  (no items in this collection)")
-    else
-      table.insert(lines, "  (no items in library)")
-    end
+    table.insert(lines, empty_message())
   end
 
   return lines
@@ -412,6 +405,29 @@ function M.restore_session()
   M.fetch_and_render()
 end
 
+-- Shared render-commit sequence: paints `items` into `buf`, clamps and
+-- restores the cursor, and reapplies highlights. Callers still handle their
+-- own status-bar/width-tracking calls afterward, since those differ per site.
+local function commit_render(buf, items)
+  vim.bo[buf].modifiable = true
+  local lines = format_items_table(items)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  if cursor_line > #lines then
+    cursor_line = #lines
+  end
+  local mcl = min_cursor_line()
+  if cursor_line < mcl then
+    cursor_line = #lines >= mcl and mcl or 1
+  end
+
+  M.apply_highlights(buf)
+  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+
+  return lines
+end
+
 function M.fetch_and_render(refresh_collections)
   _fetch_generation = _fetch_generation + 1
   local generation = _fetch_generation
@@ -446,22 +462,7 @@ function M.fetch_and_render(refresh_collections)
       return
     end
 
-    vim.bo[buf].modifiable = true
-    local lines = format_items_table(items)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-
-    if cursor_line > #lines then
-      cursor_line = #lines
-    end
-    local mcl = min_cursor_line()
-    if cursor_line < mcl then
-      cursor_line = #lines >= mcl and mcl or 1
-    end
-
-    M.apply_highlights(buf)
-
-    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+    commit_render(buf, items)
 
     M.update_status()
 
@@ -537,7 +538,6 @@ function M.apply_highlights(buf)
     end
   end
 
-  -- highlight mark * for marked items
   for i, line in ipairs(lines) do
     if i > 2 then
       local star_pos = line:find("%*%d")
@@ -615,21 +615,7 @@ local function rerender()
     return
   end
 
-  vim.bo[buf].modifiable = true
-  local lines = format_items_table(items_data)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-
-  local mcl = min_cursor_line()
-  if cursor_line > #lines then
-    cursor_line = #lines
-  end
-  if cursor_line < mcl then
-    cursor_line = #lines >= mcl and mcl or 1
-  end
-
-  M.apply_highlights(buf)
-  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  commit_render(buf, items_data)
   M.update_status()
 
   local win = layout.get_items_win()
@@ -689,22 +675,7 @@ function M.show_results(results)
     return
   end
 
-  vim.bo[buf].modifiable = true
-  local lines = format_items_table(items_data)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-
-  M.apply_highlights(buf)
-
-  if cursor_line > #lines then
-    cursor_line = #lines
-  end
-  local mcl = min_cursor_line()
-  if cursor_line < mcl then
-    cursor_line = #lines >= mcl and mcl or 1
-  end
-
-  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  commit_render(buf, items_data)
   M.update_status()
 
   local win = layout.get_items_win()
@@ -1089,17 +1060,8 @@ function M.set_keymaps()
   end, "fix or update item with DOI")
 
   map({ "n", "x" }, "items_delete", function()
-    local mode = vim.api.nvim_get_mode().mode
-    local start_line, end_line
-
-    if mode:match("[vV\22]") then
-      start_line = vim.fn.line("v")
-      end_line = vim.fn.line(".")
-      if start_line > end_line then
-        start_line, end_line = end_line, start_line
-      end
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
-    else
+    local start_line, end_line = get_visual_lines()
+    if not start_line then
       start_line = cursor_line
       end_line = cursor_line
     end
@@ -1212,21 +1174,7 @@ function M.set_keymaps()
       return
     end
 
-    vim.bo[items_buf].modifiable = true
-    local lines = format_items_table(items_data)
-    vim.api.nvim_buf_set_lines(items_buf, 0, -1, false, lines)
-    vim.bo[items_buf].modifiable = false
-
-    M.apply_highlights(items_buf)
-
-    if cursor_line > #lines then
-      cursor_line = #lines
-    end
-    local mcl = min_cursor_line()
-    if cursor_line < mcl then
-      cursor_line = #lines >= mcl and mcl or 1
-    end
-    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+    commit_render(items_buf, items_data)
     require("zotero.ui.collections").refresh_display()
   end, "toggle mark on item(s)")
 

@@ -57,13 +57,9 @@ M.defaults = {
   backend = "fzf",
   max_items = 500,
   columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
-  -- Timeouts (ms) for the vim.async migration
   process_timeout = 30000,
-  -- Timeout (ms) for connector HTTP requests. The pre-async code had no
-  -- timeout at all; Zotero can take a while to process imports, so keep this
-  -- generous. Override via setup({ http_timeout = ... }).
+  -- Zotero can take a while to process imports, so keep this generous.
   http_timeout = 60000,
-  wait_timeout = 30000,
 }
 
 M.options = nil

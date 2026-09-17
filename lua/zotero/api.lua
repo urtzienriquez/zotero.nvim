@@ -52,7 +52,6 @@ local function curl_fail(res)
   return string.format("exit %d (%s)%s", code or -1, reason, stderr)
 end
 
---- Awaited connector ping; returns a Task producing `true` when Zotero is up.
 function M.ping_async()
   return m_run("ping", function()
     local res = async_mod.http({ "-o", "/dev/null", BASE .. "/connector/ping" })
@@ -60,9 +59,8 @@ function M.ping_async()
   end)
 end
 
---- Poll a freshly-created item until it shows up in the synced DB copy, so the
---- duplicate checks can run against the post-write state (replaces the old
---- fixed `vim.defer_fn(600)` delay).
+-- Poll a freshly-created item until it shows up in the synced DB copy, so the
+-- duplicate checks can run against the post-write state.
 local function wait_for_item(item_key, timeout_ms)
   local deadline = vim.uv.now() + (timeout_ms or 5000)
   while true do
@@ -260,7 +258,6 @@ function M.fetch_metadata(identifier)
       end
     end
 
-    -- Fall back to Zotero's translator system for any identifier
     local payload = async_mod.json_encode({ identifier = identifier })
     local res = async_mod.http({
       "-X", "POST",
@@ -1028,7 +1025,6 @@ function M.import_pdf(path, collection_key)
       end
     end
 
-    -- fallback
     return try_save_items(path, filename, title, collection_key)
   end)
 end

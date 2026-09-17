@@ -17,11 +17,8 @@ local _render_version = nil
 -- render bail out instead of overwriting newer results.
 local _render_generation = 0
 
--- Bumped whenever something get_display_lines() reads from `collections_data`
--- or `expanded` changes shape (a fresh load, or an expand/collapse toggle).
--- Lets get_display_lines() skip rebuilding the whole line list on pure
--- cursor-navigation calls (get_collection_at_line/jump_section), which don't
--- touch either of those.
+-- Bumped when collections_data/expanded change shape, so get_display_lines()
+-- can skip rebuilding on pure cursor-navigation calls that touch neither.
 local _structure_version = 0
 local _display_lines_cache = nil
 local _display_lines_cache_key = nil

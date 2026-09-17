@@ -1,12 +1,6 @@
 local M = {}
-local async_mod = require("zotero.async")
 
 function M.search_items(items, on_done)
-  if not items or #items == 0 then
-    async_mod.notify("zotero: no items to search", vim.log.levels.INFO)
-    return
-  end
-
   local be = require("zotero.backends")
   local tel = require("telescope")
   local actions = require("telescope.actions")

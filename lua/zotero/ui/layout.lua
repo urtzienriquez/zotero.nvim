@@ -74,7 +74,6 @@ function M.create_layout()
   local total_width = vim.o.columns
   local collections_width = math.max(25, math.floor(total_width * 0.2))
 
-  -- open in a dedicated new tab
   vim.cmd("tabnew")
   local items_win = vim.api.nvim_get_current_win()
   local scratch_buf = vim.api.nvim_win_get_buf(items_win)
@@ -91,7 +90,6 @@ function M.create_layout()
   vim.wo[items_win].cursorline = true
   apply_statuscolumn(items_win)
 
-  -- split left for collections
   local collections_win = nil
   if not collections_hidden then
     collections_win = vim.api.nvim_open_win(collections_buf, true, {

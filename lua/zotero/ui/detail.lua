@@ -93,7 +93,6 @@ function M.show_item(item_id, type_name_hint)
   async_mod.run("zotero:ui.detail.show", function()
     local detail = async_mod.await(db.get_item_detail(item_id))
     local metadata = detail.metadata or {}
-    -- Fall back to a DB lookup only if the caller didn't already know it.
     local type_name = type_name_hint
     if not type_name then
       local type_id = async_mod.await(db.get_item_type_id(item_id))
@@ -222,8 +221,6 @@ function M.show_item(item_id, type_name_hint)
 
     async_mod.to_main()
 
-    -- A newer show_item() call (even for the same item_id) may have
-    -- superseded this one while awaiting.
     if my_generation ~= render_generation then
       return
     end
@@ -388,13 +385,9 @@ function M.wrap_text(text, width)
   end
   local result = {}
   local len = #text
-  -- Number of characters already emitted into `result`. Tracked as an offset
-  -- into the original `text` instead of re-slicing a shrinking `text`
-  -- variable each iteration, which previously copied the (shrinking)
-  -- remainder on every loop -- O(n^2) for long strings. `find` is called with
-  -- an absolute init position on the original `text` (see clamp_find_init)
-  -- instead of on a freshly-copied remaining substring, so the result is
-  -- identical to searching within the remainder.
+  -- Offset into the original `text` (not a re-sliced copy), to avoid an
+  -- O(n^2) re-slice per loop on long strings; `find` uses an absolute init
+  -- position (see clamp_find_init) to search as if on the remainder.
   local offset = 0
   while len - offset > width do
     local remaining_len = len - offset

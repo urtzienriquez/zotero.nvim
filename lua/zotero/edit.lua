@@ -23,7 +23,6 @@ local function build_editable(data)
   }
 end
 
--- Pretty-prints a JSON-encodable Lua value with 2-space indentation.
 local function pretty_json(data)
   local parts = {}
 
@@ -136,7 +135,6 @@ function M.open_edit(item_id)
 
     async_mod.to_main()
 
-    -- Remember focused window (items pane)
     local prev_win = vim.api.nvim_get_current_win()
 
     vim.cmd("botright split")
@@ -155,7 +153,6 @@ function M.open_edit(item_id)
 
     vim.b[buf].zotero_prev_win = prev_win
 
-    -- On close, restore focus to items pane
     vim.api.nvim_create_autocmd("BufWipeout", {
       buffer = buf,
       once = true,
@@ -170,17 +167,14 @@ function M.open_edit(item_id)
 
     local buf_id = buf
 
-    -- :ZoteroSave
     vim.api.nvim_buf_create_user_command(buf, "ZoteroSave", function()
       M.save_edit(buf_id)
     end, { desc = "Save changes to Zotero" })
 
-    -- <leader>zs to save
     vim.keymap.set("n", "<leader>zs", function()
       M.save_edit(buf_id)
     end, { buffer = buf, silent = true, desc = "save changes" })
 
-    -- q to close
     vim.keymap.set("n", "q", function()
       local pw = vim.b[buf_id].zotero_prev_win
       if pw and vim.api.nvim_win_is_valid(pw) then
@@ -189,7 +183,6 @@ function M.open_edit(item_id)
       vim.api.nvim_buf_delete(buf_id, { force = true })
     end, { buffer = buf, silent = true, desc = "close editor" })
 
-    -- g? to show available fields and item types
     vim.keymap.set("n", "g?", function()
       async_mod.run("zotero:edit.help", function()
         local item_type_id = vim.b[buf_id].zotero_item_type_id
@@ -213,7 +206,6 @@ function M.open_edit(item_id)
       end)
     end, { buffer = buf, silent = true, desc = "show available fields and types" })
 
-    -- <leader>zk to regenerate Better BibTeX citation key
     vim.keymap.set("n", "<leader>zk", function()
       local key = vim.b[buf_id].zotero_key
       local api = require("zotero.api")
@@ -259,7 +251,6 @@ function M.save_edit(bufnr)
     local key = vim.b[bufnr].zotero_key
     local item_id = vim.b[bufnr].zotero_item_id
 
-    -- Validate itemType if changed
     local lookup_type_id = vim.b[bufnr].zotero_item_type_id
     if updated.itemType and updated.itemType ~= original.itemType then
       local all_types = async_mod.await(db.get_all_item_types())
@@ -282,7 +273,6 @@ function M.save_edit(bufnr)
       end
     end
 
-    -- Validate fields against allowed field names (use new type if changed)
     local valid_fields = {}
     local all_fields = async_mod.await(db.get_item_type_fields(lookup_type_id))
     for _, f in ipairs(all_fields) do
@@ -313,7 +303,6 @@ function M.save_edit(bufnr)
       end
     end
 
-    -- Validate creators format
     local creators = updated.creators
     if creators then
       if type(creators) ~= "table" then
@@ -336,7 +325,6 @@ function M.save_edit(bufnr)
       end
     end
 
-    -- Validate tags format
     local tags = updated.tags
     if tags then
       if type(tags) ~= "table" then
@@ -419,14 +407,12 @@ function M.save_edit(bufnr)
     if ok_result then
       async_mod.notify("zotero: item " .. key .. " updated", vim.log.levels.INFO)
 
-      -- Refresh items list
       local items = require("zotero.ui.items")
       require("zotero.db").invalidate_cache()
       if items.fetch_and_render then
         items.fetch_and_render()
       end
 
-      -- Reload buffer with fresh data
       refresh_buffer_async(bufnr, item_id, vim.b[bufnr].zotero_item_type_id)
     end
   end)
