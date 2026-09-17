@@ -12,7 +12,6 @@ jobs:
       fail-fast: false
       matrix:
         neovim_version: [stable, nightly]
-    continue-on-error: ${{ matrix.neovim_version == 'stable' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,5 +26,10 @@ jobs:
       - name: Clone plenary.nvim
         run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim tests/deps/plenary.nvim
 
-      - name: Run test suite
+      - name: Run test suite (nightly)
+        if: matrix.neovim_version == 'nightly'
         run: ./scripts/test.sh
+
+      - name: Run compatibility tests (stable)
+        if: matrix.neovim_version == 'stable'
+        run: ./scripts/test.sh tests/compat

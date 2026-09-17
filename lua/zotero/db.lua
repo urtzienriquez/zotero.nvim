@@ -340,22 +340,38 @@ local ACCENT_MAP = {
   ["ő"] = "o", ["Ő"] = "O", ["ű"] = "u", ["Ű"] = "U",
 }
 
--- The generated SQL fragment only depends on `column`, and the small, fixed
--- set of columns this is called with (t.title, p.publicationTitle, ...)
--- repeats across every search word and every keystroke, so memoize it instead
--- of rebuilding ~70 chained REPLACE() calls from scratch each time.
+local ACCENT_PAIRS = {}
+for acc, ascii in pairs(ACCENT_MAP) do
+  ACCENT_PAIRS[#ACCENT_PAIRS + 1] = { acc, ascii }
+end
+
+-- Cap nested REPLACE()s per scalar-subquery segment: chaining all ~70 as one
+-- flat nested expression can exceed some sqlite3 builds' fixed parser stack
+-- ("parser stack overflow"); wrapping each chunk in its own (SELECT ...)
+-- keeps peak expression nesting bounded regardless of ACCENT_MAP's size.
+local DEACCENT_CHUNK_SIZE = 10
+
+-- Memoized per column, since the small, fixed set of columns this is called
+-- with (t.title, p.publicationTitle, ...) repeats every search word/keystroke.
 local _deaccent_sql_cache = {}
 local function deaccent_sql(column)
   local cached = _deaccent_sql_cache[column]
   if cached then
     return cached
   end
-  local sql = column
-  for acc, ascii in pairs(ACCENT_MAP) do
-    sql = string.format("REPLACE(%s, '%s', '%s')", sql, acc, ascii)
+  local expr = column
+  local i = 1
+  while i <= #ACCENT_PAIRS do
+    local chunk_end = math.min(i + DEACCENT_CHUNK_SIZE - 1, #ACCENT_PAIRS)
+    local chunk = expr
+    for j = i, chunk_end do
+      chunk = string.format("REPLACE(%s, '%s', '%s')", chunk, ACCENT_PAIRS[j][1], ACCENT_PAIRS[j][2])
+    end
+    expr = "(SELECT " .. chunk .. ")"
+    i = chunk_end + 1
   end
-  _deaccent_sql_cache[column] = sql
-  return sql
+  _deaccent_sql_cache[column] = expr
+  return expr
 end
 
 -- Same folding as deaccent_sql, applied to a search word instead of a
