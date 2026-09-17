@@ -14,9 +14,14 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - PDF import via Zotero Connector API with duplicate detection
 - Add items by identifier (DOI, ISBN, PMID, arXiv)
 - Add PDF attachments to existing items
-- Edit item metadata (requires companion Zotero plugin)
+- Edit item metadata
 - Batch delete / trash with visual selection support
-- Create and trash collections
+- Create collections, move items into them, and trash/erase them
+
+> Browsing and searching work out of the box. Everything above that *writes*
+> to your library — editing, creating/deleting items or collections, adding
+> by identifier, attaching files, full-metadata PDF import — requires a small
+> companion Zotero plugin. See [Zotero Companion Plugin](#zotero-companion-plugin).
 
 ## Requirements
 
@@ -24,7 +29,7 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
   - **Neovim < 0.13:** the `vim.async` API is not available there. Pin your install to `v0.0.2`.
 - `sqlite3` CLI (e.g. `apt install sqlite3`)
 - A local Zotero database at one of the standard locations: `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`, `~/.local/share/zotero/zotero.sqlite`
-- **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (Required for PDF import, add-by-identifier, and metadata editing)
+- **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (required for every Connector-based feature, whether it needs the companion plugin or not)
 
 ## Installation
 
@@ -219,7 +224,29 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 
 ## Zotero Companion Plugin
 
-Metadata editing (`<leader>ze`) and Better BibTeX key regeneration require the companion plugin:
+Zotero's own built-in Connector server only implements a small, fixed set of
+endpoints for the official browser extension (mainly `ping` and `saveItems`).
+It has no concept of "update this item," "create a collection," "delete an
+item," and so on — those aren't part of Zotero's API surface. To support
+them, this plugin ships a small companion Zotero add-on (in `zotero_plugin/`)
+that registers the additional endpoints directly inside Zotero.
+
+The companion plugin is required for:
+
+- Editing item metadata (`<leader>ze`) and Better BibTeX key regeneration (`<leader>zk`)
+- Creating, moving items into, and trashing/erasing collections
+- Adding items by identifier (DOI/ISBN/PMID/arXiv)
+- Adding PDF attachments to existing items
+- Deleting / permanently erasing items
+- The "merge" option in duplicate-resolution prompts
+- Full-metadata PDF import (auto-recognition of the PDF's contents)
+
+Without it installed, PDF import (`<leader>zi` / `:ZoteroImport`) is designed
+to fall back to Zotero's native `saveItems` endpoint and create a bare item
+(filename as the title, no extracted metadata) rather than fail outright —
+that's the one write path built entirely on Zotero's native API.
+
+Install the companion plugin with:
 
 ```bash
 cd zotero_plugin
@@ -227,7 +254,7 @@ cd zotero_plugin
 # Then in Zotero: Tools → Add-ons → Install From File → select the .xpi
 ```
 
-After installing and restarting Zotero, open an item's edit buffer with `<leader>ze`.
+After installing and restarting Zotero, the features above become available.
 
 ## License
 
