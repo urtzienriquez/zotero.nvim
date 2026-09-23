@@ -94,6 +94,7 @@ CONFIGURATION                                            *zotero-config*
 
         -- Items pane keymaps (set to false to disable individual keymaps)
         items_show_detail        = "<CR>",
+        items_toggle_read        = "<leader>zR",
         items_open_attachment    = "<leader>zo",
         items_open_url           = "<leader>zb",
         items_edit_item          = "<leader>ze",
@@ -112,6 +113,7 @@ CONFIGURATION                                            *zotero-config*
         items_toggle_collections = "<leader>zt",
         items_toggle_mark        = "<leader>zm",
         items_show_only_marked   = "<leader>zl",
+        items_filter_type        = "<leader>zT",
         toggle_statuscolumn      = "<leader>zg",
         items_focus_collections  = "<Tab>",
         items_show_help          = "g?",
@@ -139,8 +141,17 @@ CONFIGURATION                                            *zotero-config*
       -- Fuzzy search backend: "fzf" or "telescope"
       backend = "fzf",
 
-      -- Command to open PDF attachments (default: xdg-open)
-      pdf_viewer = "xdg-open",
+      -- Command to open attachments and URLs/DOIs. nil (default) uses
+      -- the OS handler via vim.ui.open() (open/xdg-open/start)
+      pdf_viewer = nil,
+
+      -- Item types hidden from the items list at startup, e.g.
+      -- { "webpage" }. Change on the fly with <leader>zT.
+      hidden_item_types = {},
+
+      -- Column preset for feeds ("compact", "normal", "full",
+      -- "configured"); remembered separately from the library view
+      feed_view = "compact",
 
       -- Max items to load at once (prevents lag with huge libraries)
       max_items = 500,
@@ -195,12 +206,30 @@ The browser opens in its own tab, with a split layout:
 Collections Pane~
   Navigate the tree with |j|/|k|. Press |<CR>| to select a
   collection (loads its items) or expand/collapse if it has children.
-  Jump between sections (My Library, Marked, Trash) with |]]|/|[[|.
+  Jump between sections (My Library, Feeds, Marked, Trash) with |]]|/|[[|.
+
+Feeds~                                                        *zotero-feeds*
+  Zotero stores each feed (and each group) as a separate library; only
+  your personal library is shown under My Library. Subscribed feeds are
+  listed in a Feeds section with unread counts. Press |<CR>| on a feed to
+  list its items. On a feed item, |<CR>| opens the preview and
+  <leader>zb opens its link (URL, else DOI) in the browser; either
+  marks the item read, as viewing it in Zotero does. <leader>zR toggles
+  read/unread. Read state needs companion plugin 1.1.0 or later
+  (|zotero-companion-plugin|).
+
+  Feeds use the compact view by default (see `feed_view`), with unread
+  items marked `●` and read items dimmed (highlight groups
+  `ZoteroFeedUnread` and `ZoteroFeedRead`). Otherwise feed items are
+  read-only: editing, deleting, marking, attaching and moving them are
+  refused.
 
 Items Pane~
   Scroll items with |j|/|k|. Press |<CR>| to see the full item
   detail. Search with |<leader>z/|, clear with |<leader>zc|.
   Sort with |<leader>zs| (title), |<leader>zS| (year), |<leader>zd| (date added).
+  Filter by item type with |<leader>zT| (see |:ZoteroFilterType|); the
+  filter stays active when switching collections or feeds.
 
 Detail Panel~
   Shows full metadata for the selected item, including abstract,
@@ -222,7 +251,7 @@ Global~
 Collections Pane~
   j / k           Navigate up/down
   ]] / [[         Next / previous section
-  <CR>            Select collection or Trash (loads items)
+  <CR>            Select collection, feed or Trash (loads items)
   <Tab>           Focus items pane
   <leader>zt      Toggle collections pane
   <leader>zN      Create new collection
@@ -232,6 +261,7 @@ Collections Pane~
 Items Pane~
   j / k           Navigate up/down
   <CR>            Show item detail
+  <leader>zR      Toggle read/unread (feed items)
   <leader>zo      Open attached file
   <leader>zb      Open URL/DOI in browser
   <leader>ze      Edit item metadata
@@ -252,6 +282,7 @@ Items Pane~
   <Tab>           Focus collections pane
   <leader>zm      Toggle mark on item
   <leader>zl      Show only marked items
+  <leader>zT      Filter by item type (hide / show only / show all)
   g?              Show help
 
 Edit Buffer~
@@ -267,6 +298,13 @@ COMMANDS                                                  *zotero-commands*
 :Zotero               Open the Zotero library browser
 :ZoteroDebug          Print database connection info and statistics
 :ZoteroImport {path}  Import a PDF into Zotero via the Connector API
+
+                                                          *:ZoteroFilterType*
+:ZoteroFilterType [all | {type}... | -{type}...]
+                      Filter the items list by item type. Without
+                      arguments opens a picker. `all` clears the filter,
+                      `book thesis` shows only those types, `-webpage -note`
+                      hides those types.
 
 ==============================================================================
 PUBLIC API                                                    *zotero-api*

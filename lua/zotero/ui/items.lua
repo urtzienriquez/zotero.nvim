@@ -16,6 +16,16 @@ local is_searching = false
 local is_trash_mode = false
 local marked_items = {}
 local show_only_marked = false
+-- libraryID/name of the feed being browsed, or nil for the user library.
+-- Feed items are read-only here (see readonly_guard()).
+local current_feed_library_id = nil
+local current_feed_name = nil
+-- Item-type filter; deliberately survives collection/feed/search changes.
+-- mode "exclude" hides `types`, mode "include" shows only `types`.
+local type_filter = {
+  mode = "exclude",
+  types = vim.deepcopy(cfg_mod.get().hidden_item_types or {}),
+}
 local last_items_width = -1
 local _resize_autocmd_set = false
 local _render_version = nil
@@ -38,6 +48,23 @@ local PRESETS = {
   { name = "compact", columns = { "__compact__" } },
   { name = "normal", columns = { "#", "title", "authors", "year", "type" } },
   { name = "full", columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded", "type" } },
+}
+
+local function preset_index_by_name(name)
+  for i, p in ipairs(PRESETS) do
+    if p.name == name then
+      return i - 1
+    end
+  end
+  return nil
+end
+
+-- The library and feed views each remember their own column preset, so a
+-- feed can default to the compact list (feed items rarely have authors,
+-- journals or keys worth a column) without changing the library table.
+local _preset_by_view = {
+  library = 0,
+  feed = preset_index_by_name(cfg_mod.get().feed_view or "compact") or 1,
 }
 
 local function is_compact_mode()
@@ -166,6 +193,21 @@ local function format_items_compact(items)
       for _, r in ipairs(regions) do
         r[1] = r[1] + 2
         r[2] = r[2] + 2
+      end
+    elseif current_feed_library_id then
+      -- Feed view: unread dot in front, read items dimmed.
+      local unread = item.unread == 1
+      local prefix = unread and "● " or "  "
+      line = prefix .. line
+      for _, r in ipairs(regions) do
+        r[1] = r[1] + #prefix
+        r[2] = r[2] + #prefix
+        if not unread then
+          r[3] = "ZoteroFeedRead"
+        end
+      end
+      if unread then
+        table.insert(regions, 1, { 0, #"●", "ZoteroFeedUnread" })
       end
     end
 
@@ -371,8 +413,23 @@ local function load_authors_for_items(items)
   return items
 end
 
+-- Switches between the library view and a feed's view, swapping in the
+-- column preset that view last used.
+local function set_feed(library_id, name)
+  local old_view = current_feed_library_id and "feed" or "library"
+  local new_view = library_id and "feed" or "library"
+  if old_view ~= new_view then
+    _preset_by_view[old_view] = _preset_index
+    _preset_index = _preset_by_view[new_view]
+    _compact_hl_regions = {}
+  end
+  current_feed_library_id = library_id
+  current_feed_name = name
+end
+
 function M.load_items(collection_id)
   current_collection_id = collection_id
+  set_feed(nil, nil)
   is_trash_mode = false
   search_term = ""
   is_searching = false
@@ -383,6 +440,7 @@ end
 
 function M.load_trash()
   current_collection_id = nil
+  set_feed(nil, nil)
   is_trash_mode = true
   search_term = ""
   is_searching = false
@@ -393,12 +451,151 @@ end
 
 function M.load_marked()
   current_collection_id = nil
+  set_feed(nil, nil)
   is_trash_mode = false
   search_term = ""
   is_searching = false
   show_only_marked = true
   cursor_line = min_cursor_line()
   M.fetch_and_render()
+end
+
+function M.load_feed(library_id, name)
+  current_collection_id = nil
+  set_feed(library_id, name)
+  is_trash_mode = false
+  search_term = ""
+  is_searching = false
+  show_only_marked = false
+  cursor_line = min_cursor_line()
+  M.fetch_and_render()
+end
+
+function M.is_feed_mode()
+  return current_feed_library_id ~= nil
+end
+
+-- Feed items live in their own library, and the connector (like Zotero's
+-- own UI) only edits the user library, so write actions are refused here.
+-- Returns true (and notifies) when the caller should bail out.
+function M.readonly_guard()
+  if current_feed_library_id then
+    async_mod.notify("zotero: feed items are read-only", vim.log.levels.WARN)
+    return true
+  end
+  return false
+end
+
+local function type_filter_opts()
+  local opts = { library_id = current_feed_library_id }
+  if #type_filter.types > 0 then
+    if type_filter.mode == "include" then
+      opts.include_types = type_filter.types
+    else
+      opts.exclude_types = type_filter.types
+    end
+  end
+  return opts
+end
+
+function M.get_type_filter()
+  return vim.deepcopy(type_filter)
+end
+
+-- mode: "include" | "exclude"; types: list of itemTypes.typeName ({} = no filter).
+function M.set_type_filter(mode, types_list)
+  type_filter = { mode = mode or "exclude", types = types_list or {} }
+  cursor_line = min_cursor_line()
+  M.fetch_and_render()
+end
+
+-- Builds the <leader>zT picker entries for `type_names` given the current
+-- `filter`: each entry is { label, mode, types } describing the filter to
+-- switch to. Pure, so it's testable without a UI.
+function M.type_filter_choices(type_names, filter)
+  local active = {}
+  for _, t in ipairs(filter.types) do
+    active[t] = true
+  end
+  local function without(name)
+    return vim.tbl_filter(function(t) return t ~= name end, filter.types)
+  end
+  local function with(name)
+    local l = vim.deepcopy(filter.types)
+    l[#l + 1] = name
+    return l
+  end
+
+  local choices = {}
+  if #filter.types > 0 then
+    choices[#choices + 1] = { label = "Show all types", mode = "exclude", types = {} }
+  end
+  for _, name in ipairs(type_names) do
+    if filter.mode == "include" and #filter.types > 0 then
+      if active[name] then
+        choices[#choices + 1] = { label = "Stop showing: " .. name, mode = "include", types = without(name) }
+      else
+        choices[#choices + 1] = { label = "Also show: " .. name, mode = "include", types = with(name) }
+      end
+    else
+      if active[name] then
+        choices[#choices + 1] = { label = "Unhide: " .. name, mode = "exclude", types = without(name) }
+      else
+        choices[#choices + 1] = { label = "Hide: " .. name, mode = "exclude", types = with(name) }
+      end
+    end
+  end
+  for _, name in ipairs(type_names) do
+    choices[#choices + 1] = { label = "Only: " .. name, mode = "include", types = { name } }
+  end
+  return choices
+end
+
+-- Type names for :ZoteroFilterType completion: whatever is in the loaded
+-- list plus whatever the filter currently references. Synchronous (no DB
+-- query), since command-line completion can't await.
+function M.known_type_names()
+  local seen, names = {}, {}
+  local function add(n)
+    if n and n ~= "" and not seen[n] then
+      seen[n] = true
+      names[#names + 1] = n
+    end
+  end
+  for _, item in ipairs(items_data) do
+    add(item.typeName)
+  end
+  for _, t in ipairs(type_filter.types) do
+    add(t)
+  end
+  table.sort(names)
+  return names
+end
+
+function M.pick_type_filter()
+  async_mod.run("zotero:ui.items.pick_type_filter", function()
+    local rows = async_mod.await(db.get_all_item_types()) or {}
+    local names = {}
+    for _, r in ipairs(rows) do
+      names[#names + 1] = r.typeName
+    end
+    -- get_all_item_types() leaves these out (they're for the edit form), but
+    -- standalone attachments/notes do show up in the list, so allow hiding them.
+    names[#names + 1] = "attachment"
+    names[#names + 1] = "note"
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+
+    local choices = M.type_filter_choices(names, type_filter)
+    async_mod.to_main()
+    vim.ui.select(choices, {
+      prompt = "Filter item types:",
+      format_item = function(c) return c.label end,
+    }, function(choice)
+      if choice then
+        M.set_type_filter(choice.mode, choice.types)
+      end
+    end)
+  end)
 end
 
 function M.restore_session()
@@ -440,9 +637,9 @@ function M.fetch_and_render(refresh_collections)
     if is_trash_mode then
       items = async_mod.await(db.get_trash_items(sort_by, sort_dir, limit))
     elseif current_collection_id then
-      items = async_mod.await(db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit))
+      items = async_mod.await(db.get_items(current_collection_id, search_term, sort_by, sort_dir, limit, type_filter_opts()))
     else
-      items = async_mod.await(db.search_global(search_term, sort_by, sort_dir, limit))
+      items = async_mod.await(db.search_global(search_term, sort_by, sort_dir, limit, type_filter_opts()))
     end
 
     items = load_authors_for_items(items)
@@ -554,6 +751,13 @@ function M.update_status()
     return
   end
   local info = "zotero"
+  if current_feed_name then
+    info = info .. "  feed: " .. current_feed_name
+  end
+  if #type_filter.types > 0 then
+    info = info .. (type_filter.mode == "include" and "  types: only " or "  types: hiding ")
+      .. table.concat(type_filter.types, ", ")
+  end
   if search_term ~= "" then
     info = info .. "  search: " .. search_term
   end
@@ -567,16 +771,96 @@ function M.update_status()
   vim.wo[win].winbar = info
 end
 
-local function on_enter()
+local function item_under_cursor()
   local win = layout.get_items_win()
   if not win then
-    return
+    return nil
   end
   local cursor = vim.api.nvim_win_get_cursor(win)
-  local item = get_item_at_visible_line(cursor[1])
+  return get_item_at_visible_line(cursor[1])
+end
+
+local function show_detail()
+  local item = item_under_cursor()
   if item then
     require("zotero.ui.detail").show_item(item.itemID, item.typeName)
   end
+end
+
+-- Opens the item's URL, falling back to its DOI, in the browser.
+function M.open_item_url(item)
+  if not item then
+    return
+  end
+  async_mod.run("zotero:ui.items.open_url", function()
+    local metadata = async_mod.await(db.get_item_metadata(item.itemID))
+    local url = nil
+    local doi = nil
+    for _, m in ipairs(metadata) do
+      if m.fieldName == "url" and m.value and m.value ~= "" then
+        url = m.value
+      elseif m.fieldName == "DOI" and m.value and m.value ~= "" then
+        doi = m.value
+      end
+    end
+    local link = url or (doi and "https://doi.org/" .. doi)
+    if not link then
+      async_mod.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
+      return
+    end
+    async_mod.to_main()
+    M.open_external(link)
+  end)
+end
+
+-- Sets the read state of feed items through the companion plugin, then
+-- re-renders (list + unread counts). `quiet` is for the automatic
+-- mark-as-read on open: it skips items that are already read and doesn't
+-- report a missing companion plugin.
+function M.set_items_read(items_list, read, quiet)
+  local library_id = current_feed_library_id
+  if not library_id then
+    return
+  end
+  local targets = vim.tbl_filter(function(item)
+    return item and item.itemID and (not quiet or (item.unread == 1) == read)
+  end, items_list)
+  if #targets == 0 then
+    return
+  end
+  async_mod.run("zotero:ui.items.set_read", function()
+    local key_map = async_mod.await(db.get_item_keys(vim.tbl_map(function(i) return i.itemID end, targets)))
+    local keys = vim.tbl_values(key_map)
+    if #keys == 0 then
+      return
+    end
+    local ok = async_mod.await(require("zotero.api").set_feed_items_read(library_id, keys, read, { quiet = quiet }))
+    if ok and current_feed_library_id == library_id then
+      async_mod.to_main()
+      M.fetch_and_render(true)
+    end
+  end)
+end
+
+-- Viewing a feed item marks it read, as selecting it does in Zotero.
+local function mark_read_on_open(item)
+  if item and current_feed_library_id and item.unread == 1 then
+    M.set_items_read({ item }, true, true)
+  end
+end
+
+-- <CR>: detail/preview panel.
+local function on_enter()
+  local item = item_under_cursor()
+  show_detail()
+  mark_read_on_open(item)
+end
+
+-- items_open_url: open the item's URL/DOI in the browser.
+local function open_link()
+  local item = item_under_cursor()
+  M.open_item_url(item)
+  mark_read_on_open(item)
 end
 
 local function move_cursor(delta)
@@ -740,8 +1024,22 @@ function M.open_file(attachment)
     return
   end
 
-  local viewer = require("zotero.config").get().pdf_viewer or "xdg-open"
-  vim.fn.jobstart({ viewer, full_path }, { detach = true })
+  M.open_external(full_path)
+end
+
+-- Opens a file or URL with the configured `pdf_viewer`, or the OS default
+-- handler (vim.ui.open: open on macOS, xdg-open on Linux, start on Windows)
+-- when none is configured.
+function M.open_external(target)
+  local viewer = require("zotero.config").get().pdf_viewer
+  if viewer and viewer ~= "" then
+    vim.fn.jobstart({ viewer, target }, { detach = true })
+    return
+  end
+  local _, err = vim.ui.open(target)
+  if err then
+    async_mod.notify("zotero: failed to open " .. target .. ": " .. err, vim.log.levels.ERROR)
+  end
 end
 
 local function get_visual_lines()
@@ -902,35 +1200,37 @@ function M.set_keymaps()
   map("n", "items_show_detail", on_enter, "show detail")
   map("n", "items_open_attachment", open_attachment, "open attachment")
 
-  map("n", "items_open_url", function()
-    local win = layout.get_items_win()
-    if not win then return end
-    local cur = vim.api.nvim_win_get_cursor(win)
-    local item = get_item_at_visible_line(cur[1])
-    if not item then
+  map("n", "items_open_url", open_link, "open URL/DOI in browser")
+
+  map({ "n", "x" }, "items_toggle_read", function()
+    if not current_feed_library_id then
+      async_mod.notify("zotero: read/unread only applies to feed items", vim.log.levels.INFO)
       return
     end
-    async_mod.run("zotero:ui.items.open_url", function()
-      local metadata = async_mod.await(db.get_item_metadata(item.itemID))
-      local url = nil
-      local doi = nil
-      for _, m in ipairs(metadata) do
-        if m.fieldName == "url" and m.value and m.value ~= "" then
-          url = m.value
-        elseif m.fieldName == "DOI" and m.value and m.value ~= "" then
-          doi = m.value
-        end
+    local start_line, end_line = get_visual_lines()
+    if not start_line then
+      start_line = vim.api.nvim_win_get_cursor(0)[1]
+      end_line = start_line
+    end
+    local selected = {}
+    for line = start_line, end_line do
+      local item = get_item_at_visible_line(line)
+      if item then
+        selected[#selected + 1] = item
       end
-      local link = url or (doi and "https://doi.org/" .. doi)
-      if not link then
-        async_mod.notify("zotero: no URL or DOI for this item", vim.log.levels.INFO)
-        return
+    end
+    if #selected == 0 then
+      return
+    end
+    -- Like Zotero: if any selected item is unread, mark all read; else unread.
+    local any_unread = false
+    for _, item in ipairs(selected) do
+      if item.unread == 1 then
+        any_unread = true
       end
-      local viewer = cfg_mod.get().pdf_viewer or "xdg-open"
-      async_mod.to_main()
-      vim.fn.jobstart({ viewer, link }, { detach = true })
-    end)
-  end, "open URL/DOI in browser")
+    end
+    M.set_items_read(selected, any_unread, false)
+  end, "toggle read/unread (feeds)")
 
   map("n", "items_sort_title", function()
     toggle_sort("title")
@@ -977,6 +1277,7 @@ function M.set_keymaps()
   end, "import PDF")
 
   map("n", "items_attach_pdf", function()
+    if M.readonly_guard() then return end
     local win = layout.get_items_win()
     if not win then return end
     local cur = vim.api.nvim_win_get_cursor(win)
@@ -1006,6 +1307,7 @@ function M.set_keymaps()
   end, "add attachment to item")
 
   map("n", "items_fix_attachment", function()
+    if M.readonly_guard() then return end
     local win = layout.get_items_win()
     if not win then return end
     local cur = vim.api.nvim_win_get_cursor(win)
@@ -1060,6 +1362,7 @@ function M.set_keymaps()
   end, "fix or update item with DOI")
 
   map({ "n", "x" }, "items_delete", function()
+    if M.readonly_guard() then return end
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -1070,6 +1373,7 @@ function M.set_keymaps()
   end, "delete item(s)")
 
   map({ "n", "x" }, "items_move_to_collection", function()
+    if M.readonly_guard() then return end
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -1142,6 +1446,7 @@ function M.set_keymaps()
   end, "move item(s) to collection")
 
   map({ "n", "x" }, "items_toggle_mark", function()
+    if M.readonly_guard() then return end
     local start_line, end_line = get_visual_lines()
     if not start_line then
       start_line = cursor_line
@@ -1180,6 +1485,8 @@ function M.set_keymaps()
 
   map("n", "items_show_only_marked", toggle_show_marked, "show only marked items")
 
+  map("n", "items_filter_type", M.pick_type_filter, "filter by item type")
+
   map("n", "items_add_by_identifier", function()
     vim.ui.input({ prompt = "Add by identifier (DOI/ISBN/PMID/arXiv): " }, function(input)
       if input and input ~= "" then
@@ -1196,6 +1503,7 @@ function M.set_keymaps()
   end, "add item by identifier")
 
   map("n", "items_edit_item", function()
+    if M.readonly_guard() then return end
     local win = layout.get_items_win()
     local cursor = vim.api.nvim_win_get_cursor(win)
     local item = get_item_at_visible_line(cursor[1])
@@ -1246,6 +1554,7 @@ function M.show_help()
     "Items Pane:",
     "  j/k           Navigate",
     "  <CR>          Show item detail",
+    "  <leader>zR    Toggle read/unread (feed items)",
     "  <leader>zo    Open attachment",
     "  <leader>zb    Open URL/DOI in browser",
     "  <leader>ze    Edit item metadata",
@@ -1263,6 +1572,7 @@ function M.show_help()
     "  <leader>zn    Add item by identifier (DOI/ISBN/etc.)",
     "  <leader>zM    Move item to collection",
     "  <leader>zl    Show only marked items",
+    "  <leader>zT    Filter by item type",
     "  <leader>zD    Delete item (trash / permanent in Trash)",
     "  <Tab>         Focus collections",
     "",

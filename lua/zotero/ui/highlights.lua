@@ -21,6 +21,8 @@ function M.setup()
   hl(0, "ZoteroItemKey", { fg = "#ffcc66" })
   hl(0, "ZoteroItemMarker", { fg = "#ffaa00", bold = true })
   hl(0, "ZoteroSeparator", { fg = "#444444" })
+  hl(0, "ZoteroFeedUnread", { fg = "#88aaff", bold = true })
+  hl(0, "ZoteroFeedRead", { fg = "#777777" })
 end
 
 return M

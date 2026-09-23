@@ -3,6 +3,15 @@ local layout = require("zotero.ui.layout")
 local collections = require("zotero.ui.collections")
 
 local function render_sync()
+  -- layout reuses the collections buffer across tests, so blank it first:
+  -- otherwise the wait below is satisfied by the previous test's lines
+  -- before this render has landed.
+  local b = layout.get_collections_buf()
+  if b and vim.api.nvim_buf_is_valid(b) then
+    vim.bo[b].modifiable = true
+    vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
+    vim.bo[b].modifiable = false
+  end
   collections.render()
   vim.wait(3000, function()
     local buf = layout.get_collections_buf()
@@ -93,10 +102,48 @@ describe("collections (real buffers, fixture db)", function()
     vim.wait(2000, function() return line_count() < before end, 20)
     assert.is_nil(find_line("Child of A"))
 
+    layout.focus_collections() -- <CR> on a collection moves focus to the items pane
     vim.api.nvim_win_set_cursor(layout.get_collections_win(), { find_line("Root A"), 0 })
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false) -- re-expand
     vim.wait(2000, function() return find_line("Child of A") ~= nil end, 20)
     assert.is_not_nil(find_line("Child of A"))
+  end)
+
+  it("renders a Feeds section with unread counts, separate from My Library", function()
+    render_sync()
+    local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false), "\n")
+    assert.matches("Feeds %(1%)", text)
+    assert.matches("Journal RSS %(1%)", text)
+    assert.does_not.match("Group Col", text) -- group-library collection stays out
+  end)
+
+  it("selecting a feed (Enter) lists that feed's items", function()
+    vim.o.columns = 200 -- headless default is too narrow, truncates titles
+    layout.close()
+    layout.create_layout()
+    render_sync()
+    layout.focus_collections()
+    local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
+    local target_line = nil
+    for i, l in ipairs(lines) do
+      if l:match("Journal RSS") then target_line = i end
+    end
+    assert.is_not_nil(target_line)
+    local entry = collections.get_collection_at_line(target_line)
+    assert.is_true(entry.is_feed)
+    assert.equals(2, entry.feed_library_id)
+
+    vim.api.nvim_win_set_cursor(layout.get_collections_win(), { target_line, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+    local items_text = function()
+      return table.concat(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false), "\n")
+    end
+    vim.wait(3000, function() return items_text():match("Feed article unread") ~= nil end, 20)
+    assert.matches("Feed article unread", items_text())
+    assert.does_not.match("Origin of Species", items_text())
+    assert.is_true(require("zotero.ui.items").is_feed_mode())
+    assert.is_nil(collections.get_selected_collection_id())
+    require("zotero.ui.items").load_items(nil) -- leave items.lua in library mode for later specs
   end)
 
   it("refresh_counts() re-queries and re-renders without error", function()

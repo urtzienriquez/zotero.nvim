@@ -819,6 +819,45 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  // Feed items live in their feed's own library (not the user library), so
+  // unlike the endpoints above this one takes an explicit libraryID -- and
+  // only ever touches items that really are feed items in a feed library.
+  Zotero.Server.Endpoints["/connector/setFeedItemsRead"] = function () {};
+  Zotero.Server.Endpoints["/connector/setFeedItemsRead"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var libraryID = data.libraryID;
+        var itemKeys = data.itemKeys;
+        var read = data.read !== false;
+
+        if (!libraryID || !itemKeys || !itemKeys.length) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_LIBRARY_OR_KEYS" })];
+        }
+        if (!Zotero.Feeds.get(libraryID)) {
+          return [404, "application/json", JSON.stringify({ error: "FEED_NOT_FOUND" })];
+        }
+
+        var updated = 0;
+        for (var i = 0; i < itemKeys.length; i++) {
+          var item = Zotero.Items.getByLibraryAndKey(libraryID, itemKeys[i]);
+          if (item && item.isFeedItem) {
+            // toggleRead() saves and refreshes the feed's unread count.
+            await item.toggleRead(read);
+            updated++;
+          }
+        }
+
+        return [200, "application/json", JSON.stringify({ success: true, updated: updated })];
+      } catch (e) {
+        Zotero.logError("setFeedItemsRead error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
     Zotero.logError("zotero-nvim-connector: startup complete");
   } catch (e) {
     Zotero.logError("zotero-nvim-connector: startup FAILED: " + (e.message || String(e)));
@@ -842,4 +881,5 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/eraseCollection"];
   delete Zotero.Server.Endpoints["/connector/importFile"];
   delete Zotero.Server.Endpoints["/connector/mergeItems"];
+  delete Zotero.Server.Endpoints["/connector/setFeedItemsRead"];
 }

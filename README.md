@@ -11,6 +11,8 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - Detail panel showing full metadata, abstract, tags, notes, attachments
 - Fuzzy search (fzf-lua / telescope) and literal search (_EXPERIMENTAL_)
 - Item marking system: toggle marks, filter to show only marked items
+- Filter the item list by item type on the fly (`<leader>zT` / `:ZoteroFilterType`)
+- Read-only Feeds section with unread counts (feed items never mix into My Library)
 - PDF import via Zotero Connector API with duplicate detection
 - Add items by identifier (DOI, ISBN, PMID, arXiv)
 - Add PDF attachments to existing items
@@ -89,9 +91,21 @@ require("zotero").setup({
   -- Max items loaded at once (prevents lag with huge libraries).
   max_items = 500,
 
-  -- Command to open PDF attachments.
-  -- Examples: "xdg-open", "zathura", "open", "evince"
-  pdf_viewer = "xdg-open",
+  -- Command to open attachments and URLs/DOIs.
+  -- nil (default) uses the OS handler via vim.ui.open()
+  -- (open on macOS, xdg-open on Linux, start on Windows).
+  -- Examples: "zathura", "evince", "sioyek"
+  pdf_viewer = nil,
+
+  -- Item types hidden from the items list at startup (itemTypes.typeName).
+  -- Change on the fly with <leader>zT or :ZoteroFilterType.
+  -- Example: { "webpage", "note" }
+  hidden_item_types = {},
+
+  -- Column preset for feeds: "compact" | "normal" | "full" | "configured".
+  -- Feeds remember their own preset (<leader>zv inside a feed only changes
+  -- the feed view).
+  feed_view = "compact",
 
   -- Fuzzy search backend.
   -- Valid: "fzf" | "telescope"
@@ -109,6 +123,7 @@ require("zotero").setup({
 
     -- Items pane keymaps (set nil or false to disable individual keymaps)
     items_show_detail        = "<CR>",
+    items_toggle_read        = "<leader>zR",
     items_open_attachment    = "<leader>zo",
     items_open_url           = "<leader>zb",
     items_edit_item          = "<leader>ze",
@@ -127,6 +142,7 @@ require("zotero").setup({
     items_toggle_collections = "<leader>zt",
     items_toggle_mark        = "<leader>zm",
     items_show_only_marked   = "<leader>zl",
+    items_filter_type        = "<leader>zT",
     toggle_statuscolumn      = "<leader>zg",
     items_focus_collections  = "<Tab>",
     items_show_help          = "g?",
@@ -166,7 +182,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | ------------ | ---------------------------------------------------------- |
 | `j` / `k`    | Navigate up/down                                           |
 | `]]` / `[[`  | Next / previous section                                    |
-| `<CR>`       | Select collection / expand-collapse / open Trash or Marked |
+| `<CR>`       | Select collection / expand-collapse / open feed, Trash or Marked |
 | `<Tab>`      | Focus items pane                                           |
 | `<leader>zt` | Toggle collections pane                                    |
 | `<leader>zN` | Create new collection                                      |
@@ -179,6 +195,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | ------------ | ----------------------------------------------------- |
 | `j` / `k`    | Navigate up/down                                      |
 | `<CR>`       | Show item detail                                      |
+| `<leader>zR` | Toggle read/unread (feed items; works on a selection) |
 | `<leader>zo` | Open attached file                                    |
 | `<leader>zb` | Open URL/DOI in browser                               |
 | `<leader>ze` | Edit item metadata                                    |
@@ -197,6 +214,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zt` | Toggle collections pane                               |
 | `<leader>zm` | Toggle mark on item                                   |
 | `<leader>zl` | Show only marked items                                |
+| `<leader>zT` | Filter by item type (hide / show only / show all)     |
 | `<leader>zg` | Toggle statuscolumn (signcolumn, numbers)             |
 | `<Tab>`      | Focus collections pane                                |
 | `g?`         | Show help popup                                       |
@@ -217,6 +235,25 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `:Zotero`              | Open the Zotero library browser    |
 | `:ZoteroDebug`         | Print database path and stats      |
 | `:ZoteroImport {path}` | Import a PDF via the Connector API |
+| `:ZoteroFilterType [all \| type... \| -type...]` | Filter items by type: no args opens the picker, `all` clears, `book thesis` shows only those, `-webpage -note` hides those |
+
+## Feeds
+
+Zotero stores every feed (and every group) as its own library. zotero.nvim
+shows only your personal library under **My Library**; subscribed feeds get
+their own **Feeds** section in the collections pane, with unread counts.
+Press `<CR>` on a feed to list its items. On a feed item, `<CR>` opens the
+preview (abstract and details) and `<leader>zb` opens its link
+in your browser; either one marks the item as read, as viewing it in Zotero
+does. `<leader>zR` toggles read/unread (on a visual selection too: if any
+selected item is unread, all are marked read). Feeds open in the compact view by
+default (`feed_view`), with a `●` in front of unread items and read items
+dimmed; the view you pick with `<leader>zv` in a feed is remembered separately
+from the library's. Otherwise feed items are read-only (to keep one, add it
+with Zotero itself or `<leader>zn` by DOI).
+
+Read/unread needs version 1.1.0 or later of the companion plugin (see below);
+without it, opening items still works but nothing is marked read.
 
 ## PDF Import & Duplicate Detection
 

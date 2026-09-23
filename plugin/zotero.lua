@@ -38,6 +38,9 @@ end, { nargs = 1, desc = "Set the maximum number of items to display (e.g. :Zote
 local function set_date_cmd(postfix, label, fn)
   return function(opts)
     local items = require("zotero.ui.items")
+    if items.readonly_guard() then
+      return
+    end
     local item = items.get_current_item()
     if not item then
       async_mod.notify("zotero: no item under cursor", vim.log.levels.ERROR)
@@ -74,3 +77,50 @@ vim.api.nvim_create_user_command("ZoteroSetDateModified",
   set_date_cmd("DateModified", "Date modified (YYYY-MM-DD): ",
     function(k, v) require("zotero.api").set_date_modified(k, v) end),
   { nargs = "?", desc = "Set the date modified for the item under cursor" })
+
+-- :ZoteroFilterType                 open the type picker
+-- :ZoteroFilterType all             clear the filter
+-- :ZoteroFilterType book thesis     show only these types
+-- :ZoteroFilterType -webpage -note  hide these types
+vim.api.nvim_create_user_command("ZoteroFilterType", function(opts)
+  local items = require("zotero.ui.items")
+  local args = opts.fargs
+  if #args == 0 then
+    items.pick_type_filter()
+    return
+  end
+  if #args == 1 and args[1] == "all" then
+    items.set_type_filter("exclude", {})
+    return
+  end
+  local hide, only = {}, {}
+  for _, a in ipairs(args) do
+    if a:sub(1, 1) == "-" then
+      hide[#hide + 1] = a:sub(2)
+    else
+      only[#only + 1] = a
+    end
+  end
+  if #hide > 0 and #only > 0 then
+    async_mod.notify("zotero: use either type names (show only) or -type names (hide), not both", vim.log.levels.ERROR)
+    return
+  end
+  if #only > 0 then
+    items.set_type_filter("include", only)
+  else
+    items.set_type_filter("exclude", hide)
+  end
+end, {
+  nargs = "*",
+  desc = "Filter the items list by item type (all | type... | -type...)",
+  complete = function(arg_lead)
+    local candidates = { "all" }
+    for _, name in ipairs(require("zotero.ui.items").known_type_names()) do
+      candidates[#candidates + 1] = name
+      candidates[#candidates + 1] = "-" .. name
+    end
+    return vim.tbl_filter(function(c)
+      return c:sub(1, #arg_lead) == arg_lead
+    end, candidates)
+  end,
+})

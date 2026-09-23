@@ -14,6 +14,7 @@ M.defaults = {
     items_go_to_top = "gg",
     items_go_to_bottom = "G",
     items_show_detail = "<CR>",
+    items_toggle_read = "<leader>zR",
     items_open_attachment = "<leader>zo",
     items_open_url = "<leader>zb",
     items_edit_item = "<leader>ze",
@@ -33,6 +34,7 @@ M.defaults = {
     items_toggle_collections = "<leader>zt",
     items_toggle_mark = "<leader>zm",
     items_show_only_marked   = "<leader>zl",
+    items_filter_type = "<leader>zT",
     toggle_statuscolumn = "<leader>zg",
     items_focus_collections = "<Tab>",
     items_show_help = "g?",
@@ -53,7 +55,17 @@ M.defaults = {
   },
   default_sort = "dateAdded",
   default_sort_dir = "desc",
-  pdf_viewer = "xdg-open",
+  -- Command used to open attachments and URLs. nil uses the OS default
+  -- handler via vim.ui.open() (open on macOS, xdg-open on Linux, start on
+  -- Windows).
+  pdf_viewer = nil,
+  -- Item types (itemTypes.typeName, e.g. "webpage") hidden from the items
+  -- list at startup. Change on the fly with <leader>zT or :ZoteroFilterType.
+  hidden_item_types = {},
+  -- Column preset used when browsing a feed: "compact" | "normal" | "full" |
+  -- "configured" (the `columns` below). Toggling with <leader>zv inside a
+  -- feed only changes the feed view.
+  feed_view = "compact",
   backend = "fzf",
   max_items = 500,
   columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },

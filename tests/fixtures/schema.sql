@@ -27,18 +27,35 @@ INSERT INTO itemTypeFields VALUES
   (4, 1), (4, 6), (4, 2), (4, 38), (4, 59), (4, 13), (4, 64),
   (5, 1), (5, 6), (5, 13);
 
+-- Library 1 is the user library; everything the tests assert on lives there.
+-- Library 2 is a feed and library 3 a group: their items/collections must
+-- never leak into user-library queries (see db.lua's library scoping).
+CREATE TABLE libraries (libraryID INTEGER PRIMARY KEY, type TEXT NOT NULL);
+INSERT INTO libraries VALUES (1, 'user'), (2, 'feed'), (3, 'group');
+
+CREATE TABLE feeds (libraryID INTEGER PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL);
+INSERT INTO feeds VALUES (2, 'Journal RSS', 'https://example.org/rss');
+
 CREATE TABLE items (
-  itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, key TEXT, dateAdded TEXT
+  itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, libraryID INTEGER, key TEXT, dateAdded TEXT
 );
 INSERT INTO items VALUES
-  (1, 2, 'BOOK0001', '2020-01-01 00:00:00'),
-  (2, 4, 'ART00002', '2020-02-02 00:00:00'),
-  (3, 4, 'ART00003', '2020-03-03 00:00:00'),
-  (4, 3, 'ATT00004', '2020-02-02 00:01:00'),
-  (5, 5, 'DOC00005', '2020-04-04 00:00:00'),
-  (6, 1, 'NOTE0006', '2020-04-04 00:01:00'),
-  (7, 5, 'TRASH007', '2020-05-05 00:00:00'),
-  (8, 5, 'PLAIN008', '2020-06-06 00:00:00');
+  (1, 2, 1, 'BOOK0001', '2020-01-01 00:00:00'),
+  (2, 4, 1, 'ART00002', '2020-02-02 00:00:00'),
+  (3, 4, 1, 'ART00003', '2020-03-03 00:00:00'),
+  (4, 3, 1, 'ATT00004', '2020-02-02 00:01:00'),
+  (5, 5, 1, 'DOC00005', '2020-04-04 00:00:00'),
+  (6, 1, 1, 'NOTE0006', '2020-04-04 00:01:00'),
+  (7, 5, 1, 'TRASH007', '2020-05-05 00:00:00'),
+  (8, 5, 1, 'PLAIN008', '2020-06-06 00:00:00'),
+  (9, 4, 2, 'FEED0009', '2020-07-01 00:00:00'),
+  (10, 4, 2, 'FEED0010', '2020-07-02 00:00:00'),
+  (11, 4, 3, 'GRP00011', '2020-07-03 00:00:00');
+
+CREATE TABLE feedItems (itemID INTEGER PRIMARY KEY, guid TEXT NOT NULL, readTime TEXT);
+INSERT INTO feedItems VALUES
+  (9, 'guid-9', '2020-07-05 00:00:00'),
+  (10, 'guid-10', NULL);
 
 CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
 INSERT INTO itemDataValues VALUES
@@ -54,7 +71,12 @@ INSERT INTO itemDataValues VALUES
   (10, 'Field Report'),
   (11, '2021-06-01'),
   (12, 'Snapshot'),
-  (13, 'Old Draft');
+  (13, 'Old Draft'),
+  (14, 'Feed article already read'),
+  (15, 'Feed article unread'),
+  (16, 'Group article'),
+  (17, '10.1000/dup'),
+  (18, 'https://example.org/unread');
 
 CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
 INSERT INTO itemData VALUES
@@ -63,7 +85,10 @@ INSERT INTO itemData VALUES
   (3, 1, 7), (3, 6, 8), (3, 38, 9),
   (5, 1, 10), (5, 6, 11),
   (4, 1, 12),
-  (7, 1, 13);
+  (7, 1, 13),
+  (9, 1, 14), (9, 59, 17),
+  (10, 1, 15), (10, 13, 18),
+  (11, 1, 16), (11, 59, 17);
   -- item 8 (PLAIN008) deliberately has no itemData rows at all.
 
 CREATE TABLE creatorTypes (creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT);
@@ -108,15 +133,17 @@ CREATE TABLE itemAnnotations (itemID INTEGER, parentItemID INTEGER);
 -- none seeded; table just needs to exist for not_child()'s subquery.
 
 CREATE TABLE collections (
-  collectionID INTEGER PRIMARY KEY, collectionName TEXT, parentCollectionID INTEGER, key TEXT
+  collectionID INTEGER PRIMARY KEY, collectionName TEXT, parentCollectionID INTEGER,
+  libraryID INTEGER, key TEXT
 );
 INSERT INTO collections VALUES
-  (1, 'Root A', NULL, 'COLLA001'),
-  (2, 'Child of A', 1, 'COLLA002'),
-  (3, 'Root B', NULL, 'COLLB001');
+  (1, 'Root A', NULL, 1, 'COLLA001'),
+  (2, 'Child of A', 1, 1, 'COLLA002'),
+  (3, 'Root B', NULL, 1, 'COLLB001'),
+  (4, 'Group Col', NULL, 3, 'COLLG001');
 
 CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
-INSERT INTO collectionItems VALUES (1, 1), (1, 2), (2, 2);
+INSERT INTO collectionItems VALUES (1, 1), (1, 2), (2, 2), (4, 11);
 
 CREATE TABLE deletedItems (itemID INTEGER);
 INSERT INTO deletedItems VALUES (7);

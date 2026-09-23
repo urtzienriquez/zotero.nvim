@@ -488,6 +488,37 @@ local function not_trashed()
   return "i.itemID NOT IN (SELECT itemID FROM deletedItems)"
 end
 
+-- Zotero keeps the user library, each group and each feed as separate
+-- libraries in the same tables. Everything this plugin shows as "My Library"
+-- (and everything the connector writes to -- see zotero_plugin/bootstrap.js,
+-- which always targets Zotero.Libraries.userLibraryID) is the user library,
+-- so queries must be scoped to it or feed/group items leak in. Must be called
+-- from inside an async task.
+local function user_library_id()
+  local dbfile, key = cache_key("user_lib")
+  local cached = cache_get(key)
+  if cached then
+    return cached
+  end
+  local id = tonumber(raw_query("SELECT libraryID FROM libraries WHERE type = 'user' LIMIT 1", dbfile)) or 1
+  cache_set(key, id)
+  return id
+end
+
+local function in_library(alias, library_id)
+  local p = alias and (alias .. ".") or ""
+  return p .. "libraryID = " .. sql_int(library_id)
+end
+
+-- SQL list literal ('a','b') from a list of item type names.
+local function type_list(names)
+  local quoted = {}
+  for _, n in ipairs(names) do
+    quoted[#quoted + 1] = "'" .. types.escape_sql(n) .. "'"
+  end
+  return "(" .. table.concat(quoted, ",") .. ")"
+end
+
 function M.get_stats()
   return async_mod.run("zotero:db.get_stats", function()
     local dbfile, key = cache_key("stats")
@@ -495,8 +526,10 @@ function M.get_stats()
     if cached then
       return cached
     end
-    local collections = raw_query("SELECT COUNT(*) FROM collections", dbfile)
-    local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems)", dbfile)
+    local lib = user_library_id()
+    local collections = raw_query("SELECT COUNT(*) FROM collections WHERE " .. in_library(nil, lib), dbfile)
+    local items = raw_query("SELECT COUNT(*) FROM items WHERE (" .. not_child(nil) .. ") AND itemID NOT IN (SELECT itemID FROM deletedItems) AND "
+      .. in_library(nil, lib), dbfile)
     local result = {
       collections = tonumber(collections) or 0,
       items = tonumber(items) or 0,
@@ -523,7 +556,7 @@ function M.get_collections()
           collectionName AS path,
           0 AS depth
         FROM collections
-        WHERE parentCollectionID IS NULL
+        WHERE parentCollectionID IS NULL AND ]] .. in_library(nil, user_library_id()) .. [[
         UNION ALL
         SELECT
           c.collectionID,
@@ -577,10 +610,25 @@ local function sort_order(sort_by, sort_dir)
   return order
 end
 
-function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override)
+-- opts (all optional):
+--   library_id     library to list (default: the user library); pass a feed's
+--                  libraryID to list that feed's items
+--   exclude_types  list of itemTypes.typeName to hide
+--   include_types  list of itemTypes.typeName to show exclusively
+function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_override, opts)
+  opts = opts or {}
   return async_mod.run("zotero:db.get_items", function()
-    local where = not_child("i") .. " AND " .. not_trashed()
-    local params = {}
+    local library_id = opts.library_id or user_library_id()
+    local where = not_child("i") .. " AND " .. not_trashed() .. " AND " .. in_library("i", library_id)
+
+    local include_types = opts.include_types or {}
+    local exclude_types = opts.exclude_types or {}
+    if #include_types > 0 then
+      where = where .. " AND it.typeName IN " .. type_list(include_types)
+    end
+    if #exclude_types > 0 then
+      where = where .. " AND it.typeName NOT IN " .. type_list(exclude_types)
+    end
 
     if collection_id then
       where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
@@ -656,9 +704,11 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
         y.year,
         y.date_str,
         k.citationKey,
-        p.publicationTitle
+        p.publicationTitle,
+        CASE WHEN fi.itemID IS NULL THEN NULL WHEN fi.readTime IS NULL THEN 1 ELSE 0 END AS unread
       FROM items i
       JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+      LEFT JOIN feedItems fi ON i.itemID = fi.itemID
       ]] .. join .. [[
       LEFT JOIN (
         SELECT id.itemID, dv.value AS title
@@ -691,7 +741,9 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     ]]
 
     local dbfile, key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
-      .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit))
+      .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit)
+      .. "|" .. tostring(library_id) .. "|+" .. table.concat(include_types, ",")
+      .. "|-" .. table.concat(exclude_types, ","))
     local cached = cache_get(key)
     if cached then
       return cached
@@ -705,6 +757,7 @@ end
 function M.get_trash_items(sort_by, sort_dir, limit_override)
   return async_mod.run("zotero:db.get_trash_items", function()
     local order = sort_order(sort_by, sort_dir)
+    local lib = user_library_id()
 
     local limit = limit_override or cfg().max_items
 
@@ -745,7 +798,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
         JOIN itemDataValues dv ON id.valueID = dv.valueID
         WHERE id.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
       ) p ON i.itemID = p.itemID
-      WHERE ]] .. not_child("i") .. [[
+      WHERE ]] .. not_child("i") .. [[ AND ]] .. in_library("i", lib) .. [[
 
       UNION ALL
 
@@ -763,6 +816,7 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
         c.key AS _trash_key
       FROM deletedCollections dc
       JOIN collections c ON dc.collectionID = c.collectionID
+      WHERE ]] .. in_library("c", lib) .. [[
 
       ORDER BY ]] .. order .. [[
       LIMIT ]] .. tostring(limit) .. [[
@@ -786,8 +840,11 @@ function M.get_trash_count()
     if cached then
       return cached
     end
-    local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE (" .. not_child("i") .. ")", dbfile)
-    local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections", dbfile)
+    local lib = user_library_id()
+    local item_count = raw_query("SELECT COUNT(*) FROM items i JOIN deletedItems d ON i.itemID = d.itemID WHERE ("
+      .. not_child("i") .. ") AND " .. in_library("i", lib), dbfile)
+    local col_count = raw_query("SELECT COUNT(*) FROM deletedCollections dc JOIN collections c ON dc.collectionID = c.collectionID WHERE "
+      .. in_library("c", lib), dbfile)
     local result = (tonumber(item_count) or 0) + (tonumber(col_count) or 0)
     cache_set(key, result)
     return result
@@ -1054,8 +1111,36 @@ function M.get_item_detail(item_id)
   end)
 end
 
-function M.search_global(search_term, sort_by, sort_dir, limit_override)
-  return M.get_items(nil, search_term, sort_by, sort_dir, limit_override)
+function M.search_global(search_term, sort_by, sort_dir, limit_override, opts)
+  return M.get_items(nil, search_term, sort_by, sort_dir, limit_override, opts)
+end
+
+-- One row per subscribed feed (each feed is its own library), with its
+-- unread/total item counts. Read state lives in feedItems.readTime.
+function M.get_feeds()
+  return async_mod.run("zotero:db.get_feeds", function()
+    local dbfile, key = cache_key("feeds")
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
+    local sql = [[
+      SELECT
+        f.libraryID,
+        f.name,
+        COALESCE(SUM(CASE WHEN i.itemID IS NOT NULL AND fi.readTime IS NULL THEN 1 ELSE 0 END), 0) AS unread,
+        COUNT(i.itemID) AS total
+      FROM feeds f
+      LEFT JOIN items i ON i.libraryID = f.libraryID
+        AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+      LEFT JOIN feedItems fi ON fi.itemID = i.itemID
+      GROUP BY f.libraryID, f.name
+      ORDER BY f.name COLLATE NOCASE
+    ]]
+    local result = json_query(sql, dbfile)
+    cache_set(key, result)
+    return result
+  end)
 end
 
 function M.get_item_type_name(item_type_id)
@@ -1232,6 +1317,7 @@ function M.get_items_by_field_value(field_name, value)
         AND dv.value = ']] .. types.escape_sql(value) .. [['
         AND (]] .. not_child("i") .. [[)
         AND ]] .. not_trashed() .. [[
+        AND ]] .. in_library("i", user_library_id()) .. [[
     ]]
     return json_query(sql)
   end)
@@ -1249,6 +1335,7 @@ function M.get_item_by_key(key)
         WHERE id.fieldID = 1
       ) t ON i.itemID = t.itemID
       WHERE i.key = ']] .. types.escape_sql(key) .. [['
+        AND ]] .. in_library("i", user_library_id()) .. [[
     ]]
     local results = json_query(sql)
     return results[1]
@@ -1268,6 +1355,7 @@ function M.get_item_field_value(key, field_name)
       JOIN items i ON id.itemID = i.itemID
       WHERE i.key = ']] .. types.escape_sql(key) .. [['
         AND id.fieldID = ]] .. field_id .. [[
+        AND ]] .. in_library("i", user_library_id()) .. [[
     ]]
     local results = json_query(sql)
     if results and #results > 0 then
@@ -1291,6 +1379,7 @@ function M.get_parent_item_by_attachment_key(attachment_key)
         WHERE id.fieldID = 1
       ) t ON p.itemID = t.itemID
       WHERE a.key = ']] .. types.escape_sql(attachment_key) .. [['
+        AND ]] .. in_library("a", user_library_id()) .. [[
     ]]
     local results = json_query(sql)
     return results[1]

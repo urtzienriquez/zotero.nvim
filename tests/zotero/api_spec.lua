@@ -44,6 +44,32 @@ describe("api (mocked connector)", function()
     end)
   end)
 
+  describe("M.set_feed_items_read", function()
+    it("posts the feed library, keys and read flag", function()
+      local captured, url
+      async_mod.http = function(args)
+        url = url_of(args)
+        for i, a in ipairs(args) do
+          if a == "-d" then captured = vim.json.decode(args[i + 1]) end
+        end
+        return { code = 0, http_code = 200, body = vim.json.encode({ success = true, updated = 1 }) }
+      end
+      assert.is_true(run(api.set_feed_items_read(2, { "FEED0010" }, true)))
+      assert.matches("/connector/setFeedItemsRead$", url)
+      assert.same({ libraryID = 2, itemKeys = { "FEED0010" }, read = true }, captured)
+    end)
+
+    it("stays silent on failure when quiet", function()
+      async_mod.http = function() return { code = 0, http_code = 404, body = "" } end
+      local orig_notify, notified = async_mod.notify, false
+      async_mod.notify = function() notified = true end
+      local ok = run(api.set_feed_items_read(2, { "X" }, true, { quiet = true }))
+      async_mod.notify = orig_notify
+      assert.is_false(ok)
+      assert.is_false(notified)
+    end)
+  end)
+
   describe("M.update_item", function()
     it("returns true on a successful connector response", function()
       async_mod.http = function()

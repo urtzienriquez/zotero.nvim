@@ -1,3 +1,4 @@
+:ZoteroFilterType	zotero.txt	/*:ZoteroFilterType*
 doc/zotero.txt	zotero.txt	/*doc\/zotero.txt*
 zotero	zotero.txt	/*zotero*
 zotero-api	zotero.txt	/*zotero-api*
@@ -6,6 +7,7 @@ zotero-companion-plugin	zotero.txt	/*zotero-companion-plugin*
 zotero-config	zotero.txt	/*zotero-config*
 zotero-contents	zotero.txt	/*zotero-contents*
 zotero-debug()	zotero.txt	/*zotero-debug()*
+zotero-feeds	zotero.txt	/*zotero-feeds*
 zotero-fuzzy_find()	zotero.txt	/*zotero-fuzzy_find()*
 zotero-import_pdf()	zotero.txt	/*zotero-import_pdf()*
 zotero-installation	zotero.txt	/*zotero-installation*

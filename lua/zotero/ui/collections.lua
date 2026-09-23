@@ -7,10 +7,12 @@ local async_mod = require("zotero.async")
 
 local collections_data = {}
 local expanded = {}
+local seen_roots = {}
 local selected_collection_id = nil
 local cursor_line = 1
 local total_item_count = 0
 local trash_count = 0
+local feeds_data = {}
 local collection_keys_by_id = {}
 local _render_version = nil
 -- Bumped by M.render()/M.refresh_counts(); lets a superseded in-flight
@@ -26,6 +28,7 @@ local _display_lines_cache_key = nil
 local function get_display_lines()
   local marked_count = items.get_marked_count()
   local cache_key = table.concat({ _structure_version, total_item_count, trash_count, marked_count }, "|")
+  -- feeds_data is only replaced in load_data(), which bumps _structure_version.
   if _display_lines_cache and _display_lines_cache_key == cache_key then
     return _display_lines_cache
   end
@@ -69,6 +72,34 @@ local function get_display_lines()
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
 
+  -- Each feed is its own Zotero library, listed read-only (as in Zotero's own
+  -- collection tree, where "Feeds" sits between the libraries and the rest).
+  if #feeds_data > 0 then
+    local total_unread = 0
+    for _, feed in ipairs(feeds_data) do
+      total_unread = total_unread + (tonumber(feed.unread) or 0)
+    end
+    table.insert(lines, {
+      line = "  Feeds (" .. tostring(total_unread) .. ")",
+      collectionID = nil,
+      has_children = false,
+      depth = 0,
+      is_feeds_header = true,
+    })
+    for _, feed in ipairs(feeds_data) do
+      table.insert(lines, {
+        line = "    " .. feed.name .. " (" .. tostring(feed.unread or 0) .. ")",
+        collectionID = nil,
+        has_children = false,
+        depth = 1,
+        is_feed = true,
+        feed_library_id = feed.libraryID,
+        feed_name = feed.name,
+      })
+    end
+    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+  end
+
   table.insert(lines, {
     line = "  Marked Items (" .. tostring(marked_count) .. ")",
     collectionID = nil,
@@ -93,15 +124,17 @@ local function get_display_lines()
 end
 
 local function load_data()
-  -- Launched before awaiting so the 3 queries run concurrently.
+  -- Launched before awaiting so the queries run concurrently.
   local t_collections = db.get_collections()
   local t_stats = db.get_stats()
   local t_trash_count = db.get_trash_count()
+  local t_feeds = db.get_feeds()
 
   collections_data = async_mod.await(t_collections)
   local stats = async_mod.await(t_stats)
   total_item_count = stats.items
   trash_count = async_mod.await(t_trash_count)
+  feeds_data = async_mod.await(t_feeds) or {}
 
   collection_keys_by_id = {}
   for _, col in ipairs(collections_data) do
@@ -109,8 +142,12 @@ local function load_data()
   end
 
   expanded["root"] = true
+  -- Top-level collections start expanded, but only the first time they're
+  -- seen: re-expanding on every reload would undo the user's collapses
+  -- whenever counts refresh (and race a collapse made mid-render).
   for _, col in ipairs(collections_data) do
-    if col.depth == 0 then
+    if col.depth == 0 and not seen_roots[col.collectionID] then
+      seen_roots[col.collectionID] = true
       expanded[col.collectionID] = true
     end
   end
@@ -272,7 +309,14 @@ local function on_enter()
     return
   end
 
-  if entry.is_separator then
+  if entry.is_separator or entry.is_feeds_header then
+    return
+  end
+
+  if entry.is_feed then
+    selected_collection_id = nil
+    items.load_feed(entry.feed_library_id, entry.feed_name)
+    layout.focus_items()
     return
   end
 
@@ -322,7 +366,7 @@ local function jump_section(direction)
   while target >= 1 and target <= #display_lines do
     local line = display_lines[target]
     if not line.is_separator and line.line ~= "" then
-      if line.is_all_items or line.is_marked_items or line.is_trash then
+      if line.is_all_items or line.is_feeds_header or line.is_marked_items or line.is_trash then
         cursor_line = target
         local win = layout.get_collections_win()
         if win then
@@ -451,7 +495,7 @@ function M.show_help()
     "  j/k           Navigate",
     "  <Up>/<Down>   Navigate (alternative)",
     "  ]] / [[       Next / prev section",
-    "  <CR>          Select collection / Trash",
+    "  <CR>          Select collection / feed / Trash",
     "  <Tab>         Focus items pane",
     "  <leader>zt    Toggle collections pane",
     "  <leader>zN    Create collection",

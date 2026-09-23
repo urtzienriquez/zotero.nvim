@@ -373,4 +373,87 @@ describe("db (against fixture sqlite db)", function()
       assert.equals(before.items, (await(db.get_stats())).items)
     end)
   end)
+
+  describe("library scoping (feeds and groups)", function()
+    local function ids_of(items)
+      local ids = {}
+      for _, i in ipairs(items) do ids[#ids + 1] = i.itemID end
+      table.sort(ids)
+      return ids
+    end
+
+    it("keeps feed and group items out of user-library queries", function()
+      assert.same({ 1, 2, 3, 5, 8 }, ids_of(await(db.get_items(nil, "", "dateAdded", "desc"))))
+      assert.same({}, ids_of(await(db.search_global("article", "dateAdded", "desc"))))
+    end)
+
+    it("keeps group collections out of the collection tree", function()
+      for _, c in ipairs(await(db.get_collections())) do
+        assert.are_not.equals("Group Col", c.collectionName)
+      end
+    end)
+
+    it("ignores feed/group items when looking up duplicates by field value", function()
+      assert.same({}, await(db.get_items_by_field_value("DOI", "10.1000/dup")))
+    end)
+
+    it("does not resolve keys from other libraries", function()
+      assert.is_nil(await(db.get_item_by_key("FEED0009")))
+      assert.is_nil(await(db.get_item_field_value("GRP00011", "DOI")))
+    end)
+
+    it("lists feeds with unread and total counts", function()
+      local feeds = await(db.get_feeds())
+      assert.equals(1, #feeds)
+      assert.equals("Journal RSS", feeds[1].name)
+      assert.equals(2, feeds[1].libraryID)
+      assert.equals(1, feeds[1].unread)
+      assert.equals(2, feeds[1].total)
+    end)
+
+    it("lists a feed's items with read state when given its library", function()
+      local items = await(db.get_items(nil, "", "dateAdded", "desc", nil, { library_id = 2 }))
+      assert.same({ 9, 10 }, ids_of(items))
+      local unread = {}
+      for _, i in ipairs(items) do unread[i.itemID] = i.unread end
+      assert.equals(0, unread[9])
+      assert.equals(1, unread[10])
+    end)
+
+    it("returns no unread flag for user-library items", function()
+      for _, i in ipairs(await(db.get_items(nil, "", "dateAdded", "desc"))) do
+        assert.is_true(i.unread == nil or i.unread == vim.NIL)
+      end
+    end)
+  end)
+
+  describe("item type filter", function()
+    local function ids_of(items)
+      local ids = {}
+      for _, i in ipairs(items) do ids[#ids + 1] = i.itemID end
+      table.sort(ids)
+      return ids
+    end
+
+    it("hides excluded types", function()
+      local items = await(db.get_items(nil, "", "dateAdded", "desc", nil, { exclude_types = { "document" } }))
+      assert.same({ 1, 2, 3 }, ids_of(items))
+    end)
+
+    it("shows only included types", function()
+      local items = await(db.get_items(nil, "", "dateAdded", "desc", nil, { include_types = { "journalArticle" } }))
+      assert.same({ 2, 3 }, ids_of(items))
+    end)
+
+    it("combines with collection filtering", function()
+      local items = await(db.get_items(1, "", "dateAdded", "desc", nil, { include_types = { "book" } }))
+      assert.same({ 1 }, ids_of(items))
+    end)
+
+    it("does not serve a cached unfiltered result for a filtered query", function()
+      await(db.get_items(nil, "", "dateAdded", "desc"))
+      local items = await(db.get_items(nil, "", "dateAdded", "desc", nil, { include_types = { "book" } }))
+      assert.same({ 1 }, ids_of(items))
+    end)
+  end)
 end)

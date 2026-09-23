@@ -144,6 +144,49 @@ function M.update_item(item_key, updates)
   end)
 end
 
+-- Marks feed items read/unread. Feed items live in their feed's own library,
+-- hence the explicit library_id. opts.quiet suppresses error notifications
+-- (used for the automatic mark-as-read on open, which shouldn't nag when the
+-- companion plugin isn't installed).
+function M.set_feed_items_read(library_id, item_keys, read, opts)
+  opts = opts or {}
+  return m_run("set_feed_items_read", function()
+    local function fail(msg)
+      if not opts.quiet then
+        async_mod.notify("zotero: marking feed item failed: " .. msg, vim.log.levels.ERROR)
+      end
+      return false
+    end
+
+    local payload = async_mod.json_encode({
+      libraryID = library_id,
+      itemKeys = item_keys,
+      read = read ~= false,
+    })
+
+    local res = async_mod.http({
+      "-X", "POST",
+      BASE .. "/connector/setFeedItemsRead",
+      "-H", "Content-Type: application/json",
+      "-d", payload,
+    })
+    db.invalidate_cache()
+
+    if res.code ~= 0 then
+      return fail("curl error: " .. curl_fail(res))
+    end
+    if res.http_code ~= 200 then
+      local ok, parsed = pcall(async_mod.json_decode, res.body)
+      return fail((ok and type(parsed) == "table" and parsed.error) or ("HTTP " .. tostring(res.http_code)))
+    end
+    local ok, parsed = pcall(async_mod.json_decode, res.body)
+    if ok and type(parsed) == "table" and parsed.success then
+      return true
+    end
+    return fail("unexpected response")
+  end)
+end
+
 function M.regenerate_key(item_key)
   return m_run("regenerate_key", function()
     db.invalidate_cache()
