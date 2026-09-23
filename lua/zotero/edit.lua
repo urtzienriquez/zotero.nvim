@@ -8,7 +8,7 @@ local HEADER = [[
 // Key:    %s
 // Type:   %s
 //
-// Edit the JSON below, then :ZoteroSave to save changes to Zotero.
+// Edit the JSON below, then :w or :ZoteroSave to save changes to Zotero.
 // :q! or q to discard.  g? to see available field names.
 // Empty string = delete field. Remove entries from creators/tags to delete.
 // ────────────────────────────────────────────────────────────────────
@@ -171,6 +171,13 @@ function M.open_edit(item_id)
       M.save_edit(buf_id)
     end, { desc = "Save changes to Zotero" })
 
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      buffer = buf,
+      callback = function()
+        M.save_edit(buf_id)
+      end,
+    })
+
     vim.keymap.set("n", "<leader>zs", function()
       M.save_edit(buf_id)
     end, { buffer = buf, silent = true, desc = "save changes" })
@@ -231,15 +238,20 @@ function M.save_edit(bufnr)
 
   local api = require("zotero.api")
 
+  -- Snapshot buffer state now: after the first await the task may resume in a
+  -- fast event context where vim.b / buffer APIs are not allowed (E5560).
+  local header_count = vim.b[bufnr].zotero_header_lines or 0
+  local json_text = table.concat(vim.api.nvim_buf_get_lines(bufnr, header_count, -1, false), "\n")
+  local original = vim.b[bufnr].zotero_original
+  local key = vim.b[bufnr].zotero_key
+  local item_id = vim.b[bufnr].zotero_item_id
+  local item_type_id = vim.b[bufnr].zotero_item_type_id
+
   async_mod.run("zotero:edit.save", function()
     if not async_mod.await(api.ping_async()) then
       async_mod.notify("zotero: Zotero is not running", vim.log.levels.ERROR)
       return
     end
-
-    local header_count = vim.b[bufnr].zotero_header_lines or 0
-    local lines = vim.api.nvim_buf_get_lines(bufnr, header_count, -1, false)
-    local json_text = table.concat(lines, "\n")
 
     local ok, updated = pcall(async_mod.json_decode, json_text)
     if not ok or type(updated) ~= "table" then
@@ -247,11 +259,7 @@ function M.save_edit(bufnr)
       return
     end
 
-    local original = vim.b[bufnr].zotero_original
-    local key = vim.b[bufnr].zotero_key
-    local item_id = vim.b[bufnr].zotero_item_id
-
-    local lookup_type_id = vim.b[bufnr].zotero_item_type_id
+    local lookup_type_id = item_type_id
     if updated.itemType and updated.itemType ~= original.itemType then
       local all_types = async_mod.await(db.get_all_item_types())
       local valid_types = {}
@@ -413,7 +421,7 @@ function M.save_edit(bufnr)
         items.fetch_and_render()
       end
 
-      refresh_buffer_async(bufnr, item_id, vim.b[bufnr].zotero_item_type_id)
+      refresh_buffer_async(bufnr, item_id, item_type_id)
     end
   end)
 end

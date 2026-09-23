@@ -205,7 +205,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 
 | Key                          | Action                                |
 | ---------------------------- | ------------------------------------- |
-| `:ZoteroSave` / `<leader>zs` | Save changes to Zotero                |
+| `:w` / `:ZoteroSave` / `<leader>zs` | Save changes to Zotero         |
 | `g?`                         | List available fields for item type   |
 | `<leader>zk`                 | Regenerate Better BibTeX citation key |
 | `q`                          | Close editor                          |

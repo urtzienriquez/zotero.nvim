@@ -234,3 +234,57 @@ describe("api (mocked connector)", function()
     end)
   end)
 end)
+
+describe("api.extract_doi", function()
+  it("accepts a bare DOI", function()
+    assert.equals("10.1111/gcb.15266", api.extract_doi("10.1111/gcb.15266"))
+  end)
+
+  it("extracts the DOI from doi.org and /doi/ URLs", function()
+    assert.equals("10.1111/gcb.15266", api.extract_doi("https://doi.org/10.1111/gcb.15266"))
+    assert.equals("10.1111/gcb.15266", api.extract_doi("https://onlinelibrary.wiley.com/doi/10.1111/gcb.15266"))
+  end)
+
+  it("handles publisher view segments, query strings and percent-encoding", function()
+    assert.equals(
+      "10.1111/gcb.15266",
+      api.extract_doi(
+        "https://onlinelibrary.wiley.com/doi/full/10.1111/gcb.15266?casa_token=gldBBaULxp4AAAAA%3AHFIn-iHzgLTUPP"
+      )
+    )
+    assert.equals("10.1111/gcb.15266", api.extract_doi("https://onlinelibrary.wiley.com/doi/epdf/10.1111/gcb.15266#x"))
+    assert.equals("10.3389/fpls.2020.00001", api.extract_doi("https://www.frontiersin.org/articles/10.3389/fpls.2020.00001/full"))
+    assert.equals("10.1000/a(b)", api.extract_doi("https://doi.org/10.1000/a%28b%29"))
+  end)
+
+  it("returns nil when there is no DOI", function()
+    assert.is_nil(api.extract_doi("https://example.com/article/123"))
+    assert.is_nil(api.extract_doi("978-3-16-148410-0"))
+    assert.is_nil(api.extract_doi(nil))
+  end)
+end)
+
+describe("api.fetch_metadata", function()
+  local orig_http
+
+  before_each(function() orig_http = async_mod.http end)
+  after_each(function() async_mod.http = orig_http end)
+
+  it("looks up the clean DOI on CrossRef for a Wiley URL with a query string", function()
+    local requested
+    async_mod.http = function(args)
+      requested = url_of(args)
+      return {
+        code = 0,
+        http_code = 200,
+        body = vim.json.encode({ status = "ok", message = { DOI = "10.1111/gcb.15266", title = { "T" } } }),
+      }
+    end
+    local meta = run(api.fetch_metadata(
+      "https://onlinelibrary.wiley.com/doi/full/10.1111/gcb.15266?casa_token=gldBBaULxp4AAAAA%3AHFIn"
+    ))
+    assert.is_truthy(requested:find("api.crossref.org/works/10.1111", 1, true))
+    assert.is_nil(requested:find("casa_token", 1, true))
+    assert.equals("T", meta.fields.title)
+  end)
+end)

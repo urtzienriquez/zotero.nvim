@@ -124,6 +124,60 @@ describe("edit.save_edit (fixture db, mocked connector)", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
+  it("saves when the connector ping resumes in a fast event context", function()
+    -- Real curl-backed pings resume from a libuv callback, where buffer APIs
+    -- raise E5560; a timer callback reproduces that.
+    api.ping_async = function()
+      return async_mod.run("stub", function()
+        return async_mod.await(function(done)
+          local timer = vim.uv.new_timer()
+          timer:start(10, 0, function()
+            timer:close()
+            done(true)
+          end)
+        end)
+      end)
+    end
+    local captured_updates
+    api.update_item = function(_, updates)
+      captured_updates = updates
+      return async_mod.run("stub2", function() return true end)
+    end
+
+    local buf = open_buffer(2)
+    local header_count = vim.b[buf].zotero_header_lines
+    local data = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(buf, header_count, -1, false), "\n"))
+    data.fields.publicationTitle = "Science Weekly"
+    set_body(buf, data)
+
+    edit.save_edit(buf)
+    wait_until(function() return captured_updates ~= nil end, 1000)
+    assert.is_not_nil(captured_updates)
+    assert.equals("Science Weekly", captured_updates.fields.publicationTitle)
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("saves on :w", function()
+    api.ping_async = function() return async_mod.run("stub", function() return true end) end
+    local captured_updates
+    api.update_item = function(_, updates)
+      captured_updates = updates
+      return async_mod.run("stub2", function() return true end)
+    end
+
+    local buf = open_buffer(2)
+    local header_count = vim.b[buf].zotero_header_lines
+    local data = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(buf, header_count, -1, false), "\n"))
+    data.fields.publicationTitle = "Science Weekly"
+    set_body(buf, data)
+
+    vim.api.nvim_buf_call(buf, function() vim.cmd("write") end)
+    wait_until(function() return captured_updates ~= nil end, 1000)
+    assert.is_not_nil(captured_updates)
+    assert.equals("Science Weekly", captured_updates.fields.publicationTitle)
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
   it("rejects an unknown itemType", function()
     api.ping_async = function() return async_mod.run("stub", function() return true end) end
     local called = false

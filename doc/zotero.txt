@@ -162,7 +162,7 @@ Zotero plugin:
 After installing and restarting Zotero, the following features are available in
 the edit buffer (opened with |<leader>ze| on an item):
 
-  - :ZoteroSave            Save changes to Zotero
+  - :w or :ZoteroSave      Save changes to Zotero
   - <leader>zs             Save changes to Zotero (alternative)
   - g?                     List available field names for the item type
   - <leader>zk             Regenerate Better BibTeX citation key
@@ -208,7 +208,7 @@ Detail Panel~
 
 Edit Buffer~
   Opened with |<leader>ze| on an item. Edit the JSON representation,
-  then type |:ZoteroSave| or press |<leader>zs| to save. Press |g?|
+  then type |:w| or |:ZoteroSave|, or press |<leader>zs| to save. Press |g?|
   to see valid field names. Press |<leader>zk| to regenerate the
   Better BibTeX citation key.
 
@@ -255,7 +255,7 @@ Items Pane~
   g?              Show help
 
 Edit Buffer~
-  :ZoteroSave     Save changes to Zotero
+  :w, :ZoteroSave Save changes to Zotero
   <leader>zs      Save changes (alternative)
   g?              Show available field names
   <leader>zk      Regenerate Better BibTeX citation key

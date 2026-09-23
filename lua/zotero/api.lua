@@ -52,6 +52,38 @@ local function curl_fail(res)
   return string.format("exit %d (%s)%s", code or -1, reason, stderr)
 end
 
+-- Publisher landing-page suffixes that follow the DOI in article URLs.
+local DOI_URL_SUFFIXES = { "full", "abstract", "abs", "pdf", "epdf", "html", "fulltext" }
+
+--- Pull a DOI out of a bare DOI or any URL that embeds one in its path
+--- (doi.org/10.x, /doi/10.x, /doi/full/10.x, ...). Query strings and
+--- fragments (e.g. Wiley's ?casa_token=) are dropped.
+function M.extract_doi(identifier)
+  if not identifier then
+    return nil
+  end
+  local s = vim.trim(identifier)
+  if s:match("^10%.%d+/.") then
+    return s
+  end
+  if not s:match("^https?://") then
+    return nil
+  end
+  local doi = s:gsub("[?#].*$", ""):match("/(10%.%d+/.+)$")
+  if not doi then
+    return nil
+  end
+  doi = vim.uri_decode(doi):gsub("/+$", "")
+  for _, suffix in ipairs(DOI_URL_SUFFIXES) do
+    local stripped = doi:match("^(.+)/" .. suffix .. "$")
+    if stripped then
+      doi = stripped
+      break
+    end
+  end
+  return doi
+end
+
 function M.ping_async()
   return m_run("ping", function()
     local res = async_mod.http({ "-o", "/dev/null", BASE .. "/connector/ping" })
@@ -247,18 +279,18 @@ function M.fetch_metadata(identifier)
     end
 
     -- For DOIs, try CrossRef first (fast, no Zotero side effects)
-    local doi = identifier:match("^10%..+$")
-      or identifier:match("^https?://[^/]+/doi/(10%..+)$")
-      or identifier:match("^https?://[^/]+/(10%..+)$")
+    local doi = M.extract_doi(identifier)
     if doi then
       local crossref = require("zotero.crossref")
-      local meta, err = async_mod.await(crossref.fetch_metadata(doi))
+      local meta = async_mod.await(crossref.fetch_metadata(doi))
       if meta then
         return meta, nil
       end
     end
 
-    local payload = async_mod.json_encode({ identifier = identifier })
+    -- Send the clean DOI when we have one: Zotero's cleanDOI keeps any query
+    -- string glued to the DOI, which makes the lookup fail.
+    local payload = async_mod.json_encode({ identifier = doi or identifier })
     local res = async_mod.http({
       "-X", "POST",
       BASE .. "/connector/fetchMetadata",
@@ -451,11 +483,7 @@ local function detect_identifier_type(identifier)
   if not identifier or identifier == "" then
     return nil
   end
-  if identifier:match("^10%.") then
-    return "DOI"
-  end
-  local doi_url_match = identifier:match("^https?://[^/]+/doi[^/]*/(10%..+)$")
-  if doi_url_match then
+  if M.extract_doi(identifier) then
     return "DOI"
   end
   local cleaned = identifier:gsub("[%-]", "")
@@ -470,13 +498,6 @@ local function detect_identifier_type(identifier)
     return "PMCID"
   end
   return nil
-end
-
-local function extract_doi(identifier)
-  if not identifier then return nil end
-  local bare = identifier:match("^(10%..+)$")
-  if bare then return bare end
-  return identifier:match("^https?://[^/]+/doi[^/]*/(10%..+)$")
 end
 
 -- Shared by both duplicate-detection flows below: notify about `existing`
@@ -524,7 +545,7 @@ local function check_duplicates_after_add(identifier, new_keys)
 
   local search_value = identifier
   if id_type == "DOI" then
-    local extracted = extract_doi(identifier)
+    local extracted = M.extract_doi(identifier)
     if extracted then
       search_value = extracted
     end
