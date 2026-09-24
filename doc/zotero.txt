@@ -92,44 +92,55 @@ CONFIGURATION                                            *zotero-config*
         open_library = "<leader>zz",   -- toggle Zotero browser
         fuzzy_find   = "<leader>zf",   -- fuzzy search items
 
-        -- Items pane keymaps (set to false to disable individual keymaps)
+        -- Items pane (set any key to false to disable it). Old
+        -- <leader>z... layout: see |zotero-legacy-keymaps|.
         items_show_detail        = "<CR>",
-        items_toggle_read        = "<leader>zR",
-        items_open_attachment    = "<leader>zo",
-        items_open_url           = "<leader>zb",
-        items_edit_item          = "<leader>ze",
-        items_import_pdf         = "<leader>zi",
-        items_attach_pdf         = "<leader>za",
-        items_move_to_collection = "<leader>zM",
-        items_add_by_identifier  = "<leader>zn",
-        items_delete             = "<leader>zD",
-        items_sort_title         = "<leader>zs",
-        items_sort_year          = "<leader>zS",
-        items_sort_date_added    = "<leader>zd",
-        items_search             = "<leader>z/",
-        items_clear_search       = "<leader>zc",
-        items_refresh            = "<leader>zr",
-        items_toggle_columns     = "<leader>zv",
-        items_toggle_collections = "<leader>zt",
-        items_toggle_mark        = "<leader>zm",
-        items_show_only_marked   = "<leader>zl",
-        items_filter_type        = "<leader>zT",
-        toggle_statuscolumn      = "<leader>zg",
+        items_refresh            = "R",
         items_focus_collections  = "<Tab>",
         items_show_help          = "g?",
+        items_open_attachment    = "oo",   -- o: open
+        items_open_url           = "ob",
+        items_edit_item          = "ee",   -- e: edit
+        items_fix_attachment     = "ef",
+        items_attach_pdf         = "aa",   -- a: add
+        items_import_pdf         = "ai",
+        items_add_by_identifier  = "an",
+        items_delete             = "dd",
+        items_move_to_collection = "cm",
+        items_toggle_mark        = "mm",
+        items_toggle_read        = "rr",
+        items_sort_title         = "st",   -- s: sort
+        items_sort_year          = "sy",
+        items_sort_date_added    = "sd",
+        items_search             = "ff",   -- f: filter
+        items_clear_search       = "fc",
+        items_filter_type        = "ft",
+        items_toggle_columns     = "tv",   -- t: toggle view
+        items_toggle_collections = "tc",
+        toggle_statuscolumn      = "ts",
+        items_help_open          = "o?",   -- <family>?: help
+        items_help_edit          = "e?",
+        items_help_add           = "a?",
+        items_help_sort          = "s?",
+        items_help_filter        = "f?",
+        items_help_toggle        = "t?",
+        items_show_only_marked   = "gm",   -- g: navigation
+        goto_library             = "gl",
+        goto_feeds               = "gf",
+        goto_trash               = "gd",
 
-        -- Collections pane keymaps
+        -- Collections pane
         collections_move_down       = "j",
         collections_move_up         = "k",
         collections_next_section    = "]]",
         collections_prev_section    = "[[",
         collections_select          = "<CR>",
-        collections_toggle_pane     = "<leader>zt",
         collections_focus_items     = "<Tab>",
-        collections_new             = "<leader>zN",
-        collections_delete          = "<leader>zD",
-        collections_refresh         = "<leader>zr",
         collections_focus_items_esc = "<Esc>",
+        collections_new             = "aa",
+        collections_delete          = "dd",
+        collections_refresh         = "R",
+        collections_toggle_pane     = "tc",
         collections_show_help       = "g?",
       },
 
@@ -147,7 +158,7 @@ CONFIGURATION                                            *zotero-config*
       pdf_viewer = nil,
 
       -- Item types hidden from the items list at startup, e.g.
-      -- { "webpage" }. Change on the fly with <leader>zT.
+      -- { "webpage" }. Change on the fly with ft.
       hidden_item_types = {},
 
       -- Column preset for feeds ("compact", "normal", "full",
@@ -172,7 +183,7 @@ Zotero plugin:
 <
 
 After installing and restarting Zotero, the following features are available in
-the edit buffer (opened with |<leader>ze| on an item):
+the edit buffer (opened with `ee` on an item):
 
   - :w or :ZoteroSave      Save changes to Zotero
   - <leader>zs             Save changes to Zotero (alternative)
@@ -216,17 +227,17 @@ Feeds~                                                        *zotero-feeds*
   none yet).
 
   Managing feeds (companion plugin 1.2.1 or later):
-  - <leader>zN on the Feeds header or a feed asks for a URL; Zotero
+  - aa on the Feeds header or a feed asks for a URL; Zotero
     checks it is an RSS/Atom feed, names it after the feed's title and
     fetches it (see |:ZoteroAddFeed|). |:ZoteroImportOPML| imports many.
-  - <leader>zD on a feed unsubscribes from it.
-  - <leader>zr on a feed fetches new items; on the Feeds header it
+  - dd on a feed unsubscribes from it.
+  - R on a feed fetches new items; on the Feeds header it
     refreshes all feeds (also |:ZoteroRefreshFeeds|).
 
   Press |<CR>| on a feed to
   list its items. On a feed item, |<CR>| opens the preview and
-  <leader>zb opens its link (URL, else DOI) in the browser; either
-  marks the item read, as viewing it in Zotero does. <leader>zR toggles
+  ob opens its link (URL, else DOI) in the browser; either
+  marks the item read, as viewing it in Zotero does. rr toggles
   read/unread. Read state needs companion plugin 1.2.1 or later
   (|zotero-companion-plugin|).
 
@@ -238,13 +249,13 @@ Feeds~                                                        *zotero-feeds*
 
 Items Pane~
   Scroll items with |j|/|k|. Press |<CR>| to see the full item
-  detail. Search with |<leader>z/|, clear with |<leader>zc|.
-  Sort with |<leader>zs| (title), |<leader>zS| (year), |<leader>zd| (date added).
-  Filter by item type with |<leader>zT| (or |:ZoteroFilterType|); the
+  detail. Search with `ff`, clear with `fc`. Sort with `st` (title),
+  `sy` (year), `sd` (date added). Filter by item type with `ft` (or
+  |:ZoteroFilterType|); the
   filter stays active when switching collections or feeds.
 
 Item-type checklist~                                    *zotero-type-filter*
-  <leader>zT opens a floating checklist of the item types in the current
+  `ft` opens a floating checklist of the item types in the current
   view (library, collection or feed), with item counts. Changes apply to
   the items list immediately:
     <CR> / <Space>  Show/hide the type under the cursor
@@ -258,9 +269,9 @@ Detail Panel~
   tags, notes, and attachments. Press |q| or |<Esc>| to close.
 
 Edit Buffer~
-  Opened with |<leader>ze| on an item. Edit the JSON representation,
-  then type |:w| or |:ZoteroSave|, or press |<leader>zs| to save. Press K
-  to see the valid field names for the item's type. Press |<leader>zk| to
+  Opened with `ee` on an item. Edit the JSON representation,
+  then type |:w| or |:ZoteroSave|, or press <leader>zs to save. Press K
+  to see the valid field names for the item's type. Press <leader>zk to
   regenerate the Better BibTeX citation key.
 
 ==============================================================================
@@ -274,48 +285,102 @@ Global~                                                 *zotero-global-maps*
   <leader>zz      Open/close Zotero browser
   <leader>zf      Fuzzy search all items
 
+Keys come in two-key families named after what they do (o = open,
+e = edit, a = add, s = sort, f = filter, t = toggle view), and
+`<family>?` opens help at that family. The g prefix is reserved for
+navigation, never for actions.
+
 Collections Pane~                                  *zotero-collections-maps*
   j / k           Navigate up/down (also <Down> / <Up>)
   ]] / [[         Next / previous section
   <CR>            Select collection, feed, Marked or Trash (loads items);
                   on a collection with children, also expand/collapse
   <Tab> / <Esc>   Focus items pane
-  <leader>zN      Create new collection (on Feeds/a feed: add a feed)
-  <leader>zD      Trash selected collection (on a feed: unsubscribe)
-  <leader>zr      Refresh (on a feed: fetch new items; on Feeds: all)
-  <leader>zt      Toggle collections pane
-  <leader>zg      Toggle statuscolumn (signs, line numbers)
+  aa              Add a collection (on Feeds or a feed: add a feed)
+  dd              Trash the collection (on a feed: unsubscribe)
+  R               Refresh (on a feed: fetch new items; on Feeds: all)
+  tc              Toggle collections pane
+  ts              Toggle statuscolumn (signs, line numbers)
+  gl / gf / gm / gd   Go to My Library / Feeds / marked items / Trash
   g?              Open this help
 
 Items Pane~                                              *zotero-items-maps*
   j / k           Navigate up/down (also <Down> / <Up>)
   gg / G          Go to first / last item
   <CR>            Show item detail
-  <leader>zo      Open attached file
-  <leader>zb      Open URL/DOI in browser
-  <leader>ze      Edit item metadata (see |zotero-edit-maps|)
-  <leader>zi      Import PDF (standalone)
-  <leader>za      Add PDF attachment to selected item
-  <leader>zF      Fix attachment / update item from a DOI or URL
-  <leader>zn      Add item by identifier (DOI/ISBN/PMID/arXiv)
-  <leader>zM      Move item(s) to collection         (visual: selection)
-  <leader>zD      Trash item(s); permanent delete in Trash (visual: selection)
-  <leader>zm      Toggle mark on item(s)             (visual: selection)
-  <leader>zl      Show only marked items
-  <leader>zR      Toggle read/unread, feed items     (visual: selection)
-  <leader>zs      Sort by title
-  <leader>zS      Sort by year
-  <leader>zd      Sort by date added
-  <leader>z/      Search
-  <leader>zc      Clear search
-  <leader>zT      Item-type checklist (see |zotero-type-filter|)
-  <leader>zr      Refresh (in a feed: fetch new items first)
-  <leader>zv      Toggle column view (configured/compact/normal/full)
-  <leader>zt      Toggle collections pane
-  <leader>zg      Toggle statuscolumn (signs, line numbers)
+  R               Refresh (in a feed: fetch new items first)
   <Tab>           Focus collections pane
+  dd              Trash item(s); permanent delete in Trash
+  cm              Move item(s) to a collection
+  mm              Toggle mark on item(s)
+  rr              Toggle read/unread (feed items)
   g?              Open this help
+  dd, cm, mm and rr also work on a visual selection.
 
+  Navigation~
+  gl              Go to My Library
+  gf              Go to the Feeds section (collections pane)
+  gm              Show only marked items (again: back)
+  gd              Go to Trash ("deleted")
+
+Open~                                               *zotero-items-open-maps*
+  oo              Open the attached file
+  ob              Open the URL/DOI in the browser
+  o?              Open this help
+
+Edit~                                               *zotero-items-edit-maps*
+  ee              Edit item metadata (see |zotero-edit-maps|)
+  ef              Fix attachment / update item from a DOI or URL
+  e?              Open this help
+
+Add~                                                 *zotero-items-add-maps*
+  aa              Attach a PDF to the item
+  ai              Import a PDF as a new item
+  an              Add an item by identifier (DOI/ISBN/PMID/arXiv)
+  a?              Open this help
+
+Sort~                                               *zotero-items-sort-maps*
+  st              Sort by title
+  sy              Sort by year
+  sd              Sort by date added
+  s?              Open this help
+  Pressing the same sort key again reverses the order.
+
+Filter~                                           *zotero-items-filter-maps*
+  ff              Search
+  fc              Clear search
+  ft              Item-type checklist (see |zotero-type-filter|)
+  f?              Open this help
+
+Toggle view~                                      *zotero-items-toggle-maps*
+  tv              Column view (configured/compact/normal/full)
+  tc              Collections pane
+  ts              Statuscolumn (signs, line numbers)
+  t?              Open this help
+
+Old keymaps~                                         *zotero-legacy-keymaps*
+  Before this layout every action was `<leader>z` + a letter. To keep
+  using those, pass them in |zotero-setup()|: >lua
+    require("zotero").setup({
+      keymaps = {
+        items_open_attachment = "<leader>zo", items_open_url = "<leader>zb",
+        items_edit_item = "<leader>ze",       items_fix_attachment = "<leader>zF",
+        items_attach_pdf = "<leader>za",      items_import_pdf = "<leader>zi",
+        items_add_by_identifier = "<leader>zn",
+        items_delete = "<leader>zD",          items_move_to_collection = "<leader>zM",
+        items_toggle_mark = "<leader>zm",     items_toggle_read = "<leader>zR",
+        items_sort_title = "<leader>zs",      items_sort_year = "<leader>zS",
+        items_sort_date_added = "<leader>zd",
+        items_search = "<leader>z/",          items_clear_search = "<leader>zc",
+        items_filter_type = "<leader>zT",     items_show_only_marked = "<leader>zl",
+        items_refresh = "<leader>zr",         items_toggle_columns = "<leader>zv",
+        items_toggle_collections = "<leader>zt",
+        toggle_statuscolumn = "<leader>zg",
+        collections_new = "<leader>zN",       collections_delete = "<leader>zD",
+        collections_refresh = "<leader>zr",   collections_toggle_pane = "<leader>zt",
+      },
+    })
+<
 Edit Buffer~                                              *zotero-edit-maps*
   :w, :ZoteroSave Save changes to Zotero
   <leader>zs      Save changes (alternative)

@@ -1438,6 +1438,29 @@ function M.set_keymaps()
 
   map("n", "items_filter_type", M.pick_type_filter, "filter by item type")
 
+  -- g: navigation (collections.lua maps the same keys in its pane)
+  map("n", "goto_library", function()
+    M.load_items(nil)
+  end, "go to My Library")
+  map("n", "goto_trash", M.load_trash, "go to Trash")
+  map("n", "goto_feeds", function()
+    require("zotero.ui.collections").focus_feeds()
+  end, "go to Feeds")
+
+  -- <family>?: :help at that family's section
+  for name, tag in pairs({
+    items_help_open = "zotero-items-open-maps",
+    items_help_edit = "zotero-items-edit-maps",
+    items_help_add = "zotero-items-add-maps",
+    items_help_sort = "zotero-items-sort-maps",
+    items_help_filter = "zotero-items-filter-maps",
+    items_help_toggle = "zotero-items-toggle-maps",
+  }) do
+    map("n", name, function()
+      vim.cmd.help(tag)
+    end, "help: " .. tag)
+  end
+
   map("n", "items_add_by_identifier", function()
     vim.ui.input({ prompt = "Add by identifier (DOI/ISBN/PMID/arXiv): " }, function(input)
       if input and input ~= "" then

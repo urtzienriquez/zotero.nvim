@@ -196,36 +196,36 @@ describe("collections (real buffers, fixture db)", function()
       assert.does_not.match("Journal RSS", text)
     end)
 
-    it("<leader>zN on the Feeds header prompts for a URL and adds a feed", function()
+    it("aa on the Feeds header prompts for a URL and adds a feed", function()
       render_sync()
-      press_on("^  Feeds", "<leader>zN")
+      press_on("^  Feeds", "aa")
       assert.same({ "add_feed", "https://example.org/new.xml" }, calls[1])
     end)
 
-    it("<leader>zN on a collection still creates a collection, not a feed", function()
+    it("aa on a collection still creates a collection, not a feed", function()
       render_sync()
       local orig_create = api.create_collection
       api.create_collection = function(...)
         calls[#calls + 1] = { "create_collection", ... }
         return vim.async.run(function() return false end)
       end
-      press_on("Root B", "<leader>zN")
+      press_on("Root B", "aa")
       api.create_collection = orig_create
       assert.equals("create_collection", calls[1][1])
     end)
 
-    it("<leader>zD on a feed unsubscribes from it", function()
+    it("dd on a feed unsubscribes from it", function()
       render_sync()
-      press_on("Journal RSS", "<leader>zD")
+      press_on("Journal RSS", "dd")
       assert.same({ "delete_feed", 2 }, calls[1])
     end)
 
-    it("<leader>zr refreshes one feed on a feed line, all feeds on the header", function()
+    it("R refreshes one feed on a feed line, all feeds on the header", function()
       render_sync()
-      press_on("Journal RSS", "<leader>zr")
+      press_on("Journal RSS", "R")
       assert.same({ "refresh_feeds", 2 }, calls[1])
       calls = {}
-      press_on("^  Feeds", "<leader>zr")
+      press_on("^  Feeds", "R")
       assert.same({ "refresh_feeds" }, calls[1]) -- library_id nil = all feeds
     end)
   end)

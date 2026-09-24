@@ -18,8 +18,15 @@ zotero-global-maps	zotero.txt	/*zotero-global-maps*
 zotero-import_pdf()	zotero.txt	/*zotero-import_pdf()*
 zotero-installation	zotero.txt	/*zotero-installation*
 zotero-introduction	zotero.txt	/*zotero-introduction*
+zotero-items-add-maps	zotero.txt	/*zotero-items-add-maps*
+zotero-items-edit-maps	zotero.txt	/*zotero-items-edit-maps*
+zotero-items-filter-maps	zotero.txt	/*zotero-items-filter-maps*
 zotero-items-maps	zotero.txt	/*zotero-items-maps*
+zotero-items-open-maps	zotero.txt	/*zotero-items-open-maps*
+zotero-items-sort-maps	zotero.txt	/*zotero-items-sort-maps*
+zotero-items-toggle-maps	zotero.txt	/*zotero-items-toggle-maps*
 zotero-keymaps	zotero.txt	/*zotero-keymaps*
+zotero-legacy-keymaps	zotero.txt	/*zotero-legacy-keymaps*
 zotero-open_library()	zotero.txt	/*zotero-open_library()*
 zotero-requirements	zotero.txt	/*zotero-requirements*
 zotero-setup()	zotero.txt	/*zotero-setup()*

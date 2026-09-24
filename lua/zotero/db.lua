@@ -1113,7 +1113,7 @@ end
 
 -- Item counts per itemTypes.typeName for a view (a collection, a feed's
 -- library via library_id, or the whole user library), ignoring any type
--- filter. Feeds the <leader>zT checklist.
+-- filter. Feeds the item-type checklist (ft).
 function M.get_type_counts(collection_id, library_id)
   return async_mod.run("zotero:db.get_type_counts", function()
     local lib = library_id or user_library_id()

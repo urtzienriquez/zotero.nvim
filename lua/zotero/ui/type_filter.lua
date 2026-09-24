@@ -1,4 +1,4 @@
--- <leader>zT: a small floating checklist of the item types in the current
+-- items_filter_type (ft): a small floating checklist of the item types in the current
 -- view. Each type is either visible ([x]) or hidden ([ ]); changes apply to
 -- the items list immediately.
 --

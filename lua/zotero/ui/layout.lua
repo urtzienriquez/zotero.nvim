@@ -139,10 +139,10 @@ function M.set_keymaps()
   local toggle_lhs = km.toggle_statuscolumn
   if toggle_lhs then
     for _, buf in ipairs({ collections_buf, items_buf }) do
+      -- No nowait: the default (ts) shares the t prefix with tc/tv.
       vim.keymap.set("n", toggle_lhs, M.toggle_statuscolumn, {
         buffer = buf,
         silent = true,
-        nowait = true,
         desc = "toggle statuscolumn",
       })
     end

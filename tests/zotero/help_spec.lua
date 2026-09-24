@@ -13,6 +13,10 @@ local function help_tags_in_code()
       if tag then
         tags[tag] = true
       end
+      -- tags kept in tables (e.g. the <family>? help keys)
+      for maps_tag in line:gmatch('"(zotero%-[%w%-]+%-maps)"') do
+        tags[maps_tag] = true
+      end
     end
   end
   return vim.tbl_keys(tags)
@@ -22,7 +26,7 @@ describe("g? help tags", function()
   it("every tag used with vim.cmd.help exists in doc/tags", function()
     local tags_file = table.concat(vim.fn.readfile(root .. "/doc/tags"), "\n")
     local used = help_tags_in_code()
-    assert.is_true(#used >= 4)
+    assert.is_true(#used >= 10)
     for _, tag in ipairs(used) do
       assert.is_truthy(("\n" .. tags_file):find("\n" .. tag .. "\t", 1, true), "missing help tag: " .. tag)
     end

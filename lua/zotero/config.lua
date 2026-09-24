@@ -2,8 +2,14 @@ local M = {}
 
 M.defaults = {
   db_path = nil,
+  -- Buffer-local keys follow the fugitive/sessman style: two-key mnemonic
+  -- families (o = open, e = edit, a = add, s = sort, f = filter, t = toggle
+  -- view, ...), <family>? opens help for that family, and the g prefix is
+  -- navigation only. Every entry can be remapped (or set to false); see
+  -- README "Keeping the old keymaps" for the previous <leader>z... layout.
   keymaps = {
     enabled = true,
+    -- Global
     open_library = "<leader>zz",
     fuzzy_find = "<leader>zf",
     -- Items buffer
@@ -14,30 +20,48 @@ M.defaults = {
     items_go_to_top = "gg",
     items_go_to_bottom = "G",
     items_show_detail = "<CR>",
-    items_toggle_read = "<leader>zR",
-    items_open_attachment = "<leader>zo",
-    items_open_url = "<leader>zb",
-    items_edit_item = "<leader>ze",
-    items_import_pdf = "<leader>zi",
-    items_attach_pdf = "<leader>za",
-    items_fix_attachment = "<leader>zF",
-    items_move_to_collection = "<leader>zM",
-    items_add_by_identifier = "<leader>zn",
-    items_delete = "<leader>zD",
-    items_sort_title = "<leader>zs",
-    items_sort_year = "<leader>zS",
-    items_sort_date_added = "<leader>zd",
-    items_search = "<leader>z/",
-    items_clear_search = "<leader>zc",
-    items_refresh = "<leader>zr",
-    items_toggle_columns = "<leader>zv",
-    items_toggle_collections = "<leader>zt",
-    items_toggle_mark = "<leader>zm",
-    items_show_only_marked   = "<leader>zl",
-    items_filter_type = "<leader>zT",
-    toggle_statuscolumn = "<leader>zg",
+    items_refresh = "R",
     items_focus_collections = "<Tab>",
     items_show_help = "g?",
+    -- o: open
+    items_open_attachment = "oo",
+    items_open_url = "ob",
+    -- e: edit
+    items_edit_item = "ee",
+    items_fix_attachment = "ef",
+    -- a: add
+    items_attach_pdf = "aa",
+    items_import_pdf = "ai",
+    items_add_by_identifier = "an",
+    -- single actions (also work on a visual selection)
+    items_delete = "dd",
+    items_move_to_collection = "cm",
+    items_toggle_mark = "mm",
+    items_toggle_read = "rr",
+    -- s: sort
+    items_sort_title = "st",
+    items_sort_year = "sy",
+    items_sort_date_added = "sd",
+    -- f: filter
+    items_search = "ff",
+    items_clear_search = "fc",
+    items_filter_type = "ft",
+    -- t: toggle view (tc/ts work in the collections pane too)
+    items_toggle_columns = "tv",
+    items_toggle_collections = "tc",
+    toggle_statuscolumn = "ts",
+    -- <family>?: :help at that family's section
+    items_help_open = "o?",
+    items_help_edit = "e?",
+    items_help_add = "a?",
+    items_help_sort = "s?",
+    items_help_filter = "f?",
+    items_help_toggle = "t?",
+    -- g: navigation (both panes)
+    items_show_only_marked = "gm",
+    goto_library = "gl",
+    goto_feeds = "gf",
+    goto_trash = "gd",
     -- Collections buffer
     collections_move_down = "j",
     collections_move_up = "k",
@@ -46,12 +70,12 @@ M.defaults = {
     collections_next_section = "]]",
     collections_prev_section = "[[",
     collections_select = "<CR>",
-    collections_toggle_pane = "<leader>zt",
     collections_focus_items = "<Tab>",
-    collections_new = "<leader>zN",
-    collections_delete = "<leader>zD",
-    collections_refresh = "<leader>zr",
     collections_focus_items_esc = "<Esc>",
+    collections_new = "aa",
+    collections_delete = "dd",
+    collections_refresh = "R",
+    collections_toggle_pane = "tc",
     collections_show_help = "g?",
   },
   default_sort = "dateAdded",
@@ -61,10 +85,10 @@ M.defaults = {
   -- Windows).
   pdf_viewer = nil,
   -- Item types (itemTypes.typeName, e.g. "webpage") hidden from the items
-  -- list at startup. Change on the fly with <leader>zT or :ZoteroFilterType.
+  -- list at startup. Change on the fly with ft or :ZoteroFilterType.
   hidden_item_types = {},
   -- Column preset used when browsing a feed: "compact" | "normal" | "full" |
-  -- "configured" (the `columns` below). Toggling with <leader>zv inside a
+  -- "configured" (the `columns` below). Toggling with tv inside a
   -- feed only changes the feed view.
   feed_view = "compact",
   backend = "fzf",

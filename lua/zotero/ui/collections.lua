@@ -74,7 +74,7 @@ local function get_display_lines()
 
   -- Each feed is its own Zotero library (as in Zotero's own collection tree,
   -- where "Feeds" sits between the libraries and the rest). The header is
-  -- always shown, even with no feeds, so <leader>zN on it can add the first.
+  -- always shown, even with no feeds, so collections_new (aa) on it can add the first.
   do
     local total_unread = 0
     for _, feed in ipairs(feeds_data) do
@@ -287,7 +287,7 @@ function M.get_collection_at_line(line)
 end
 
 -- Prompts for a feed URL and subscribes to it through the companion plugin.
--- The name defaults to the feed's own title. Used by <leader>zN on the Feeds
+-- The name defaults to the feed's own title. Used by collections_new (aa) on the Feeds
 -- section and by :ZoteroAddFeed without arguments.
 function M.add_feed(url, name)
   local function go(u)
@@ -339,6 +339,22 @@ local function delete_feed(entry)
     end
     M.refresh_counts()
   end)
+end
+
+-- Focuses the collections pane (showing it if hidden) with the cursor on
+-- the Feeds header. Used by goto_feeds (gf) in both panes.
+function M.focus_feeds()
+  if not layout.get_collections_win() or not vim.api.nvim_win_is_valid(layout.get_collections_win()) then
+    layout.toggle_collections()
+  end
+  layout.focus_collections()
+  for i, dl in ipairs(get_display_lines()) do
+    if dl.is_feeds_header then
+      cursor_line = i
+      vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
+      return
+    end
+  end
 end
 
 local function on_enter()
@@ -561,6 +577,22 @@ function M.set_keymaps()
   end, "refresh (feed: fetch new items)")
 
   map("n", "collections_show_help", M.show_help, "help")
+
+  -- g: navigation, same keys as in the items pane
+  map("n", "goto_library", function()
+    selected_collection_id = nil
+    items.load_items(nil)
+    layout.focus_items()
+  end, "go to My Library")
+  map("n", "items_show_only_marked", function()
+    items.load_marked()
+    layout.focus_items()
+  end, "go to marked items")
+  map("n", "goto_trash", function()
+    items.load_trash()
+    layout.focus_items()
+  end, "go to Trash")
+  map("n", "goto_feeds", M.focus_feeds, "go to Feeds")
 end
 
 function M.show_help()
