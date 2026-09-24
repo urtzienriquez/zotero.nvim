@@ -727,23 +727,27 @@ local function search_clause(search_term, dbfile)
   for _, group in ipairs(groups) do
     local ors = {}
     for _, term in ipairs(group) do
-      -- `author:"huey OR kearney"`: one term, several values, any of which
-      -- may match (and `-` leaves out all of them).
-      local alts = {}
-      for _, value in ipairs(term.values) do
-        local pred
-        if term.scope == "ft" then
-          pred = fulltext_predicate(value)
-        elseif term.scope == "note" then
-          pred = note_predicate(value.text, use_index)
-        elseif term.scope == "year" then
-          pred = year_predicate(value.text)
-        else
-          pred = meta_predicate(value.text, use_index, META_BY_SCOPE[term.scope])
+      -- `author:"huey OR kearney AND porter"`: one term with its own
+      -- AND-of-ORs of values; `-` negates the whole of it.
+      local all = {}
+      for _, values in ipairs(term.groups) do
+        local alts = {}
+        for _, value in ipairs(values) do
+          local pred
+          if term.scope == "ft" then
+            pred = fulltext_predicate(value)
+          elseif term.scope == "note" then
+            pred = note_predicate(value.text, use_index)
+          elseif term.scope == "year" then
+            pred = year_predicate(value.text)
+          else
+            pred = meta_predicate(value.text, use_index, META_BY_SCOPE[term.scope])
+          end
+          alts[#alts + 1] = "(" .. pred .. ")"
         end
-        alts[#alts + 1] = "(" .. pred .. ")"
+        all[#all + 1] = "(" .. table.concat(alts, " OR ") .. ")"
       end
-      local pred = "COALESCE((" .. table.concat(alts, " OR ") .. "), 0)"
+      local pred = "COALESCE((" .. table.concat(all, " AND ") .. "), 0)"
       ors[#ors + 1] = term.negate and ("NOT " .. pred) or pred
     end
     ands[#ands + 1] = "(" .. table.concat(ors, " OR ") .. ")"
