@@ -127,6 +127,51 @@ describe("async_compat", function()
     assert.equals(1, max_inside)
   end)
 
+  describe("system (vim.system stand-in for Neovim 0.10)", function()
+    local function run_system(cmd, opts)
+      local result
+      compat.system(cmd, opts or { text = true }, function(out) result = out end)
+      vim.wait(10000, function() return result ~= nil end, 5)
+      assert(result, "command did not finish")
+      return result
+    end
+
+    it("returns exit code, stdout and stderr", function()
+      local out = run_system({ "sh", "-c", "printf out; printf err >&2; exit 3" })
+      assert.equals(3, out.code)
+      assert.equals("out", out.stdout)
+      assert.equals("err", out.stderr)
+    end)
+
+    it("raises when the executable does not exist", function()
+      assert.has_error(function()
+        compat.system({ "zotero-nvim-no-such-binary" }, {}, function() end)
+      end)
+    end)
+
+    it("kills the process on timeout and reports code 124", function()
+      local out = run_system({ "sleep", "5" }, { timeout = 100 })
+      assert.equals(124, out.code)
+    end)
+
+    -- Regression test for neovim#30846: Neovim 0.10's vim.system dropped
+    -- output still in the pipe when the exit event came first.
+    it("never loses output, even for many concurrent commands", function()
+      local total, bad, finished = 200, 0, 0
+      for _ = 1, total do
+        compat.system({ "sh", "-c", "head -c 500 /dev/zero | tr '\\0' x" }, { text = true }, function(out)
+          if out.code ~= 0 or #out.stdout ~= 500 then
+            bad = bad + 1
+          end
+          finished = finished + 1
+        end)
+      end
+      vim.wait(60000, function() return finished == total end, 5)
+      assert.equals(total, finished)
+      assert.equals(0, bad)
+    end)
+  end)
+
   it("raises when await is called outside a task", function()
     assert.has_error(function()
       compat.await(function(done) done() end)

@@ -249,6 +249,84 @@ function M.sleep(ms)
   end)
 end
 
+-- Replacement for vim.system(cmd, opts, on_exit) on Neovim 0.10, whose
+-- vim.system closes the stdout/stderr pipes as soon as the process exits,
+-- dropping output that hasn't been read yet (neovim#30846, fixed in 0.11).
+-- Under load that made e.g. a sqlite3 query come back with exit code 0 and
+-- empty stdout. This reports completion only after the process has exited
+-- *and* both pipes reached EOF. Supports the options zotero.nvim passes:
+-- text (normalise CRLF) and timeout (SIGTERM, exit code 124 as vim.system).
+-- Like vim.system, on_exit runs in a fast (libuv) context, and a missing
+-- executable raises.
+function M.system(cmd, opts, on_exit)
+  opts = opts or {}
+  local uv = vim.uv or vim.loop
+  local stdout, stderr = uv.new_pipe(false), uv.new_pipe(false)
+  local out, err = {}, {}
+  local code, signal, timed_out = nil, nil, false
+  local pending = 3 -- process exit + EOF on stdout + EOF on stderr
+  local handle, timer
+
+  local function finish()
+    pending = pending - 1
+    if pending > 0 then
+      return
+    end
+    if timer and not timer:is_closing() then
+      timer:stop()
+      timer:close()
+    end
+    local o, e = table.concat(out), table.concat(err)
+    if opts.text then
+      o, e = o:gsub("\r\n", "\n"), e:gsub("\r\n", "\n")
+    end
+    if on_exit then
+      on_exit({ code = timed_out and 124 or code, signal = signal, stdout = o, stderr = e })
+    end
+  end
+
+  local spawn_err
+  handle, spawn_err = uv.spawn(cmd[1], {
+    args = { unpack(cmd, 2) },
+    stdio = { nil, stdout, stderr },
+    cwd = opts.cwd,
+  }, function(c, s)
+    code, signal = c, s
+    handle:close()
+    finish()
+  end)
+  if not handle then
+    stdout:close()
+    stderr:close()
+    error(("zotero: failed to run '%s': %s"):format(tostring(cmd[1]), tostring(spawn_err)), 0)
+  end
+
+  local function reader(pipe, sink)
+    return function(read_err, data)
+      if data then
+        sink[#sink + 1] = data
+        return
+      end
+      -- EOF or read error (read_err): the pipe is done either way.
+      pipe:read_stop()
+      pipe:close()
+      finish()
+    end
+  end
+  stdout:read_start(reader(stdout, out))
+  stderr:read_start(reader(stderr, err))
+
+  if opts.timeout then
+    timer = uv.new_timer()
+    timer:start(opts.timeout, 0, function()
+      if handle and not handle:is_closing() then
+        timed_out = true
+        handle:kill("sigterm")
+      end
+    end)
+  end
+end
+
 local Semaphore = {}
 Semaphore.__index = Semaphore
 

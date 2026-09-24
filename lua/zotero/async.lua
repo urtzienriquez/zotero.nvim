@@ -4,6 +4,10 @@ local M = {}
 -- Neovim builds without vim.async (< 0.13).
 local async = vim.async or require("zotero.async_compat")
 
+-- Neovim 0.10's vim.system can drop a command's output under load
+-- (neovim#30846, fixed in 0.11); use the stand-in there.
+local system = vim.fn.has("nvim-0.11") == 1 and vim.system or require("zotero.async_compat").system
+
 local function cfg()
   return require("zotero.config").get()
 end
@@ -37,7 +41,7 @@ function M.sys(cmd, opts)
     timeout = opts.timeout or cfg().process_timeout or 30000,
   }, opts)
   local out = async.await(function(done)
-    vim.system(cmd, sys_opts, done)
+    system(cmd, sys_opts, done)
   end)
   if not out or out.code == nil then
     error(("zotero: failed to run '%s'"):format(cmd[1] or "?"), 0)
