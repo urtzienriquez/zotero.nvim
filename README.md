@@ -2,6 +2,16 @@
 
 Neovim plugin for browsing your Zotero library. Reads the SQLite database directly — no exports required.
 
+> [!IMPORTANT]
+> **Pick the branch that matches your Neovim version:**
+>
+> | Your Neovim | Branch |
+> | --- | --- |
+> | nightly (0.13-dev) | [`main`](https://github.com/urtzienriquez/zotero.nvim/tree/main) |
+> | 0.10, 0.11, 0.12 (stable releases) | [`v0`](https://github.com/urtzienriquez/zotero.nvim/tree/v0) |
+>
+> Both branches have the same features and keymaps. `main` uses Neovim nightly's built-in `vim.async`; `v0` ships a small stand-in for it so it runs on stable releases. Follow the [Installation](#installation) instructions of the branch you are reading.
+
 > **Note:** This plugin is under active development. Bug reports and pull requests are very welcome.
 
 ## Features
@@ -32,15 +42,14 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 
 ## Requirements
 
-- Neovim **nightly** (`vim.async` is used to keep the UI responsive while reading the database or talking to the connector)
-  - **Neovim < 0.13:** the `vim.async` API is not available there. Pin your install to `v0.0.2`.
+- Neovim **nightly** (0.13-dev) — this `main` branch uses the built-in `vim.async` to keep the UI responsive while reading the database or talking to the connector. On Neovim 0.10–0.12, use the [`v0`](https://github.com/urtzienriquez/zotero.nvim/tree/v0) branch (see the note at the top).
 - `sqlite3` CLI (e.g. `apt install sqlite3`)
 - A local Zotero database at one of the standard locations: `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`, `~/.local/share/zotero/zotero.sqlite`
 - **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (required for every Connector-based feature, whether it needs the companion plugin or not)
 
 ## Installation
 
-Then run `:Zotero` or press `<leader>zz` to open.
+These instructions install the **`main` branch** (Neovim nightly). Then run `:Zotero` or press `<leader>zz` to open.
 
 <details open>
 <summary><strong>Neovim native package manager</strong></summary>
@@ -49,10 +58,6 @@ Then run `:Zotero` or press `<leader>zz` to open.
 vim.pack.add({
   'https://github.com/urtzienriquez/zotero.nvim',
 })
-
--- if you are not on neovim nightly, installed v0.0.2
--- where there is not vim.async:
--- vim.pack.add({{ src = gh("urtzienriquez/zotero.nvim"), version = "v0.0.2" },})
 
 require("zotero").setup()
 ```

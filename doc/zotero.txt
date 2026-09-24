@@ -39,7 +39,9 @@ export required.
 ==============================================================================
 REQUIREMENTS                                            *zotero-requirements*
 
-  - Neovim >= 0.9
+  - Neovim nightly (0.13-dev): this `main` branch uses the built-in
+    vim.async. On Neovim 0.10-0.12, install the `v0` branch instead: same
+    features and keymaps, see its README for the install instructions.
   - sqlite3 CLI binary (install via your package manager, e.g.
     `sudo apt install sqlite3` or `brew install sqlite3`)
   - Zotero Connector enabled: Settings → Advanced →
