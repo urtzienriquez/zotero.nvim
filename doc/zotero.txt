@@ -39,7 +39,8 @@ export required.
 ==============================================================================
 REQUIREMENTS                                            *zotero-requirements*
 
-  - Neovim >= 0.9
+  - Neovim >= 0.10 (this is the `v0` branch; the `main` branch has the
+    same features but needs Neovim nightly for the built-in vim.async)
   - sqlite3 CLI binary (install via your package manager, e.g.
     `sudo apt install sqlite3` or `brew install sqlite3`)
   - Zotero Connector enabled: Settings → Advanced →
@@ -57,6 +58,7 @@ lazy.nvim~
 >lua
     {
       "urtzienriquez/zotero.nvim",
+      branch = "v0",
       config = function()
         require("zotero").setup({
           db_path = "~/Zotero/zotero.sqlite",  -- optional, auto-detected
@@ -65,10 +67,10 @@ lazy.nvim~
     }
 <
 
-Neovim native package manager~
+Neovim native package manager (0.12+)~
 >lua
     vim.pack.add({
-      'https://github.com/urtzienriquez/zotero.nvim',
+      { src = "https://github.com/urtzienriquez/zotero.nvim", version = "v0" },
     })
 
     require("zotero").setup()

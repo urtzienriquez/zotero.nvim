@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, v0]
   pull_request:
 
 jobs:
@@ -12,7 +12,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        neovim_version: [stable, nightly]
+        # v0 branch: the full suite on the oldest supported release, the
+        # current stable and nightly (async_compat covers the missing vim.async).
+        neovim_version: [v0.10.4, stable, nightly]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,10 +35,5 @@ jobs:
       - name: Clone plenary.nvim
         run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim tests/deps/plenary.nvim
 
-      - name: Run test suite (nightly)
-        if: matrix.neovim_version == 'nightly'
+      - name: Run test suite
         run: ./scripts/test.sh
-
-      - name: Run compatibility tests (stable)
-        if: matrix.neovim_version == 'stable'
-        run: ./scripts/test.sh tests/compat

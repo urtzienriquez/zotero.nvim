@@ -32,8 +32,8 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 
 ## Requirements
 
-- Neovim **nightly** (`vim.async` is used to keep the UI responsive while reading the database or talking to the connector)
-  - **Neovim < 0.13:** the `vim.async` API is not available there. Pin your install to `v0.0.2`.
+- Neovim **>= 0.10** on this `v0` branch.
+  - The `main` branch has the same features but needs Neovim nightly, because it uses the built-in `vim.async`. `v0` ships a small stand-in for the part of `vim.async` the plugin uses, so everything works on stable releases too. Install from the `v0` branch as shown below.
 - `sqlite3` CLI (e.g. `apt install sqlite3`)
 - A local Zotero database at one of the standard locations: `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`, `~/.local/share/zotero/zotero.sqlite`
 - **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (required for every Connector-based feature, whether it needs the companion plugin or not)
@@ -43,34 +43,31 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 Then run `:Zotero` or press `<leader>zz` to open.
 
 <details open>
-<summary><strong>Neovim native package manager</strong></summary>
-
-```lua
-vim.pack.add({
-  'https://github.com/urtzienriquez/zotero.nvim',
-})
-
--- if you are not on neovim nightly, installed v0.0.2
--- where there is not vim.async:
--- vim.pack.add({{ src = gh("urtzienriquez/zotero.nvim"), version = "v0.0.2" },})
-
-require("zotero").setup()
-```
-
-</details>
-
-<details>
 <summary><strong>lazy.nvim</strong></summary>
 
 ```lua
 {
   "urtzienriquez/zotero.nvim",
+  branch = "v0",
   config = function()
     require("zotero").setup({
       db_path = "~/Zotero/zotero.sqlite",  -- optional, auto-detected
     })
   end,
 }
+```
+
+</details>
+
+<details>
+<summary><strong>Neovim native package manager (0.12+)</strong></summary>
+
+```lua
+vim.pack.add({
+  { src = "https://github.com/urtzienriquez/zotero.nvim", version = "v0" },
+})
+
+require("zotero").setup()
 ```
 
 </details>

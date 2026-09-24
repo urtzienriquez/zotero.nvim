@@ -1,18 +1,8 @@
 local M = {}
 
-local async = vim.async
-
-if not async then
-  return setmetatable({}, {
-    __index = function()
-      error(
-        "zotero.nvim: this version requires a Neovim build with vim.async (master). "
-          .. "For Neovim < 0.13, install the latest tagged release of zotero.nvim instead.",
-        2
-      )
-    end,
-  })
-end
+-- v0 branch: fall back to a pure-Lua implementation of the same API on
+-- Neovim builds without vim.async (< 0.13).
+local async = vim.async or require("zotero.async_compat")
 
 local function cfg()
   return require("zotero.config").get()
@@ -90,8 +80,11 @@ function M.http(args, opts)
   return { code = out.code, body = stdout:gsub("%s+$", ""), http_code = 0, stderr = out.stderr }
 end
 
+-- .timeout: wait (up to 5 s) instead of failing with "database is locked"
+-- when several queries hit a freshly copied database at once -- the first
+-- sqlite3 to open a copy that has a -wal file briefly locks it to replay it.
 function M.sqlite(db_path, args)
-  local cmd = { "sqlite3", db_path }
+  local cmd = { "sqlite3", "-cmd", ".timeout 5000", db_path }
   vim.list_extend(cmd, args)
   return M.sys(cmd)
 end

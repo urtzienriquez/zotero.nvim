@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the plenary.nvim test suite. Clones plenary into tests/deps/ on first
-# run (gitignored, dev-only). Requires: nvim (nightly, for vim.async),
-# sqlite3, git.
+# run (gitignored, dev-only). Requires: nvim >= 0.10 (on the v0 branch; main
+# needs nightly for vim.async), sqlite3, git.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

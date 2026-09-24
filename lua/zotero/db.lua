@@ -8,7 +8,17 @@ local function cfg()
   return config_mod.get()
 end
 
+-- Path of the current private copy of the database. Every (re)copy goes to a
+-- fresh path (db_copy_base .. "-" .. n) and only replaces db_copy once it is
+-- complete, so a query already running against the previous copy is never
+-- pointed at a half-written or missing file ("no such table" errors). The
+-- old copy is deleted a minute later rather than immediately: a query may
+-- hold its path while its sqlite3 process is still starting, and an early
+-- delete would make that process open an empty database. (Neovim removes its
+-- temp dir, and with it any leftover copy, on exit.)
 local db_copy = nil
+local db_copy_base = nil
+local copy_seq = 0
 local db_last_mtime = nil
 local db_last_wal_mtime = nil
 local copy_task = nil
@@ -32,8 +42,7 @@ local data_version = 0
 -- overwrites the copy from scratch.
 local _fts5_available = nil -- nil = unprobed this session
 local index_task = nil
-local index_epoch_mtime = nil
-local index_epoch_wal = nil
+local index_built_in = nil -- path of the copy the index was built in
 local index_lock = async_mod.semaphore(1)
 
 -- mtime (seconds) of the sqlite -wal sidecar, or 0 when there is none. Zotero
@@ -77,8 +86,8 @@ local function ensure_db_copy()
   if not path or path == "" then
     return nil
   end
-  if not db_copy then
-    db_copy = vim.fn.tempname()
+  if not db_copy_base then
+    db_copy_base = vim.fn.tempname()
   end
   local stat = vim.uv.fs_stat(path)
   if not stat then
@@ -104,14 +113,25 @@ local function ensure_db_copy()
         local w = wal_mtime(path_)
         if m ~= (db_last_mtime or 0) or w ~= (db_last_wal_mtime or 0) then
           local ok = pcall(function()
-            local out = db_backup(path_, db_copy)
+            copy_seq = copy_seq + 1
+            local dest = db_copy_base .. "-" .. copy_seq
+            local out = db_backup(path_, dest)
             if out.code ~= 0 then
               async_mod.notify("zotero: failed to copy database before querying", vim.log.levels.ERROR)
               return
             end
+            local old = db_copy
+            db_copy = dest
             db_last_mtime = m
             db_last_wal_mtime = w
             data_version = data_version + 1
+            if old then
+              vim.defer_fn(function()
+                for _, suffix in ipairs({ "", "-wal", "-shm" }) do
+                  pcall(vim.uv.fs_unlink, old .. suffix)
+                end
+              end, 60000)
+            end
           end)
           if not ok then
             async_mod.notify("zotero: failed to copy database before querying", vim.log.levels.ERROR)
@@ -407,21 +427,21 @@ end
 -- Builds (or reuses) a precomputed FTS5 trigram search index inside the
 -- private DB copy: one row per item, `body` = every column get_items
 -- searches, pre-concatenated, with accents folded in by `remove_diacritics`.
--- Rebuilt lazily (only when a search actually runs, once per copy epoch),
+-- Rebuilt lazily (only when a search actually runs, once per copy),
 -- mirroring the copy_task/copy_lock single-flight pattern in
--- ensure_db_copy() -- and since db_backup() always overwrites the copy from
--- scratch, a real re-copy invalidates the index epoch automatically.
+-- ensure_db_copy(). The index lives inside the copy, so it is keyed on the
+-- copy's path: every re-copy is a new file and gets its index rebuilt.
 local function ensure_search_index(dbfile)
   if not detect_fts5() then
     return false
   end
-  if index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0) then
+  if index_built_in == dbfile then
     return true
   end
   if not index_task then
     index_task = async_mod.run("zotero:db-index-build", function()
       index_lock:with(function()
-        if index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0) then
+        if index_built_in == dbfile then
           return
         end
         local build_sql = string.format(
@@ -455,14 +475,13 @@ local function ensure_search_index(dbfile)
           _fts5_available = false -- stop retrying every search this session
           return
         end
-        index_epoch_mtime = db_last_mtime
-        index_epoch_wal = db_last_wal_mtime or 0
+        index_built_in = dbfile
       end)
     end)
   end
   async_mod.await(index_task)
   index_task = nil
-  return index_epoch_mtime == db_last_mtime and index_epoch_wal == (db_last_wal_mtime or 0)
+  return index_built_in == dbfile
 end
 
 local ITEM_TYPES_FILTER = { 1, 3, 28 }

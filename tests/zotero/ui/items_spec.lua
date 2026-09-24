@@ -184,7 +184,7 @@ describe("items (real buffers, fixture db)", function()
         items.open_external = function(target) opened[#opened + 1] = target end
         api.set_feed_items_read = function(library_id, keys, read, opts)
           read_calls[#read_calls + 1] = { library_id = library_id, keys = keys, read = read, quiet = opts and opts.quiet }
-          return vim.async.run(function() return false end) -- skip the re-render
+          return require("zotero.async").run("mock", function() return false end) -- skip the re-render
         end
       end)
       after_each(function()

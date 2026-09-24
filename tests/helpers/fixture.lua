@@ -58,7 +58,7 @@ function M.wait_for(task)
 end
 
 function M.run_sync(fn)
-  return M.wait_for(vim.async.run(fn))
+  return M.wait_for(require("zotero.async").run("test", fn))
 end
 
 return M

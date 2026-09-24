@@ -157,7 +157,7 @@ describe("collections (real buffers, fixture db)", function()
         orig[name] = api[name]
         api[name] = function(...)
           calls[#calls + 1] = { name, ... }
-          return vim.async.run(function() return true end)
+          return require("zotero.async").run("mock", function() return true end)
         end
       end
       orig.input, orig.confirm = vim.ui.input, vim.fn.confirm
@@ -207,7 +207,7 @@ describe("collections (real buffers, fixture db)", function()
       local orig_create = api.create_collection
       api.create_collection = function(...)
         calls[#calls + 1] = { "create_collection", ... }
-        return vim.async.run(function() return false end)
+        return require("zotero.async").run("mock", function() return false end)
       end
       press_on("Root B", "aa")
       api.create_collection = orig_create
