@@ -25,6 +25,7 @@ zotero-items-maps	zotero.txt	/*zotero-items-maps*
 zotero-items-open-maps	zotero.txt	/*zotero-items-open-maps*
 zotero-items-sort-maps	zotero.txt	/*zotero-items-sort-maps*
 zotero-items-toggle-maps	zotero.txt	/*zotero-items-toggle-maps*
+zotero-items-yank-maps	zotero.txt	/*zotero-items-yank-maps*
 zotero-keymaps	zotero.txt	/*zotero-keymaps*
 zotero-legacy-keymaps	zotero.txt	/*zotero-legacy-keymaps*
 zotero-open_library()	zotero.txt	/*zotero-open_library()*

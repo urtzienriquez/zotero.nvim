@@ -38,6 +38,9 @@ M.defaults = {
     items_move_to_collection = "cm",
     items_toggle_mark = "mm",
     items_toggle_read = "rr",
+    -- y: yank (into the register given, e.g. "+yk for the clipboard)
+    items_yank_citation_key = "yk",
+    items_yank_file_path = "yp",
     -- s: sort
     items_sort_title = "st",
     items_sort_year = "sy",
@@ -57,6 +60,7 @@ M.defaults = {
     items_help_sort = "s?",
     items_help_filter = "f?",
     items_help_toggle = "t?",
+    items_help_yank = "y?",
     -- g: navigation (both panes)
     items_show_only_marked = "gm",
     goto_library = "gl",

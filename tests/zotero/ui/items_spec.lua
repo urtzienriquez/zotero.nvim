@@ -309,6 +309,62 @@ describe("items (real buffers, fixture db)", function()
     end)
   end)
 
+  describe("yank keys", function()
+    local function line_of(pattern)
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do
+        if l:match(pattern) then return i end
+      end
+    end
+
+    it("yk yanks the citation key into the given register", function()
+      items.show_results({ { itemID = 2, title = "Some Paper", citationKey = "darwin1859", _authors = "", year = "" } })
+      layout.focus_items()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Some Paper"), 0 })
+      feed('"ayk')
+      assert.equals("darwin1859", vim.fn.getreg("a"))
+    end)
+
+    it("yk leaves the register alone when the item has no citation key", function()
+      items.show_results({ { itemID = 2, title = "No Key Paper", _authors = "", year = "" } })
+      layout.focus_items()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("No Key Paper"), 0 })
+      vim.fn.setreg("b", "untouched")
+      feed('"byk')
+      assert.equals("untouched", vim.fn.getreg("b"))
+    end)
+
+    it("yp yanks the full path of the item's attached file", function()
+      -- Item 2's attachment is "attachments:snapshot.pdf", resolved under ~/Zotero.
+      local home = vim.fn.tempname()
+      vim.fn.mkdir(home .. "/Zotero", "p")
+      local pdf = home .. "/Zotero/snapshot.pdf"
+      vim.fn.writefile({ "%PDF" }, pdf)
+      local orig_home = vim.env.HOME
+      vim.env.HOME = home
+
+      fetch_sync()
+      layout.focus_items()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Microclimate"), 0 })
+      vim.fn.setreg("c", "")
+      feed('"cyp')
+      vim.wait(3000, function() return vim.fn.getreg("c") ~= "" end, 20)
+
+      vim.env.HOME = orig_home
+      assert.equals(vim.uv.fs_realpath(pdf), vim.uv.fs_realpath(vim.fn.getreg("c")))
+      vim.fn.delete(home, "rf")
+    end)
+
+    it("yp does nothing for an item without attachments", function()
+      fetch_sync()
+      layout.focus_items()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Origin of Species"), 0 })
+      vim.fn.setreg("d", "untouched")
+      feed('"dyp')
+      vim.wait(300, function() return false end, 20)
+      assert.equals("untouched", vim.fn.getreg("d"))
+    end)
+  end)
+
   describe("compact column mode", function()
     it("switches to the compact renderer (no table header/pipes) via items_toggle_columns", function()
       fetch_sync()
