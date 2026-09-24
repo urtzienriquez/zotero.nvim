@@ -224,6 +224,16 @@ describe("db (against fixture sqlite db)", function()
         assert.same({ 2 }, ids('author:"da OR jane smith" year:2019')) -- short word: fallback path
       end)
 
+      it('author:"a AND b" needs both, alone, negated or inside an OR', function()
+        assert.same({ 2 }, ids('author:"smith AND niguez"'))
+        assert.same({ 2 }, ids('author:"smith & niguez"'))
+        assert.same({}, ids('author:"smith AND darwin"'))
+        assert.same({ 1, 3, 5, 8 }, ids('-author:"smith AND niguez"'))
+        assert.same({ 1, 2 }, ids('author:"smith AND niguez" OR author:darwin'))
+        assert.same({ 2, 3 }, ids('author:"smith OR first AND niguez OR fifth"'))
+        assert.same({ 2 }, ids("author:smith AND author:niguez"))
+      end)
+
       it("ft: searches the full text of indexed PDFs", function()
         -- Zotero's full-text table is FTS5, which e.g. macOS's own sqlite3
         -- lacks: there ft: can only match nothing (and warn).

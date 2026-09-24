@@ -307,7 +307,9 @@ Search~                                                      *zotero-search*
                   "microclimate". Only files Zotero has indexed can match.
 
   Operators~
-  a b             Every word must match.
+  a b             Every word must match. `a AND b` and `a & b` say the
+                  same (only the upper-case `AND` is an operator; `and`
+                  is a word).
   "a b"           An exact phrase. Works after a prefix too:
                   `author:"raymond huey"`, `ft:"species distribution"`
                   (no prefix matching inside an `ft:` phrase).
@@ -316,26 +318,32 @@ Search~                                                      *zotero-search*
   -a              Leave out items that match. Also `-"a b"`,
                   `-author:a`, `-ft:a`…
 
-  OR binds tighter than the space: `x a OR b` means x and (a or b).
-  There are no parentheses.
+  OR binds tighter than AND (and the space): `x a OR b` and
+  `a OR b AND x` both mean (a or b) and x. There are no parentheses.
 
-  Alternatives inside a prefix~
-  After a prefix, a quote may hold several alternatives separated by `OR`
-  or `|`; each is a word or a phrase:
+  Operators inside a prefix~
+  After a prefix, a quote may combine several words or phrases for that
+  one field with `OR`/`|` and `AND`/`&`, with the same rule that OR binds
+  tighter:
 
     author:"huey OR kearney"             Huey or Kearney
+    author:"huey AND kearney"            both of them (the same as
+                                         `author:huey author:kearney`)
     author:"raymond huey | kearney"      the phrase "raymond huey", or
                                          Kearney
-    -author:"huey OR kearney"            neither of them
+    author:"huey OR kearney AND porter"  (Huey or Kearney) and Porter
+    -author:"huey AND kearney"           not co-authored by both
+    -author:"huey OR kearney"            by neither of them
     ft:"climate change OR global warming"
                                          either phrase in the full text
 
-  With no `OR`/`|` inside, the quote is a single phrase
-  (`ft:"climate change"`). Without a prefix it is always a single phrase:
-  `"huey OR kearney"` looks for that exact text.
+  A `-` in front leaves out what the whole quote matches. With no
+  operator inside, the quote is a single phrase (`ft:"climate change"`).
+  Without a prefix it is always a single phrase: `"huey OR kearney"`
+  looks for that exact text.
 
   Anything that doesn't read as an operator is searched for as text:
-  `OR` at the start or end, a bare `-`, a quote with no closing quote, or
+  `OR`/`AND` at the start or end, a bare `-`, a quote with no closing quote, or
   a prefix with nothing after it (`author:`). Other `word:` forms are
   plain text, so a pasted URL or DOI just works.
 
@@ -344,6 +352,8 @@ Search~                                                      *zotero-search*
                           Huey's papers whose PDF mentions climate change
     author:"huey OR kearney" year:2010-
                           by Huey or Kearney, from 2010 on
+    author:"huey AND kearney" ft:thermal
+                          co-authored by both, PDF mentions "thermal…"
     title:thermal -author:huey
                           "thermal" in the title, not by Huey
     niche OR "distribution model"
@@ -371,8 +381,8 @@ Search~                                                      *zotero-search*
   - Words shorter than 3 characters are matched more slowly, and without
     the accent folding for `note:` terms.
   - Zotero's own quick search has phrases and the notes/full-text modes,
-    but no field prefixes, OR or NOT: those only exist in its Advanced
-    Search.
+    but no field prefixes, OR, NOT or AND operators: those only exist in
+    its Advanced Search.
 
 Item-type checklist~                                    *zotero-type-filter*
   `ft` opens a floating checklist of the item types in the current
