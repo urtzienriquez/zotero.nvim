@@ -109,6 +109,7 @@ CONFIGURATION                                            *zotero-config*
         items_add_by_identifier  = "an",
         items_delete             = "dd",
         items_move_to_collection = "cm",
+        items_remove_from_collection = "cr",
         items_toggle_mark        = "mm",
         items_toggle_read        = "rr",
         items_yank_citation_key  = "yk",   -- y: yank
@@ -384,10 +385,13 @@ Items Pane~                                              *zotero-items-maps*
   <Tab>           Focus collections pane
   dd              Trash item(s); permanent delete in Trash
   cm              Move item(s) to a collection
+  cr              Remove item(s) from the collection you're viewing; they
+                  stay in My Library (asks first; needs companion plugin
+                  1.5.0 or later)
   mm              Toggle mark on item(s)
   rr              Toggle read/unread (feed items)
   g?              Open this help
-  dd, cm, mm and rr also work on a visual selection.
+  dd, cm, cr, mm and rr also work on a visual selection.
 
   Navigation~
   gl              Go to My Library

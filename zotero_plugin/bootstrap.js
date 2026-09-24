@@ -1108,6 +1108,44 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  // Removes items from one collection without deleting them from the
+  // library, like "Remove Item from Collection…" in Zotero.
+  Zotero.Server.Endpoints["/connector/removeFromCollection"] = function () {};
+  Zotero.Server.Endpoints["/connector/removeFromCollection"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var itemKeys = data.itemKeys;
+        if (!data.collectionKey || !itemKeys || !itemKeys.length) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_COLLECTION_OR_KEYS" })];
+        }
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var collection = Zotero.Collections.getByLibraryAndKey(libraryID, data.collectionKey);
+        if (!collection) {
+          return [404, "application/json", JSON.stringify({ error: "COLLECTION_NOT_FOUND" })];
+        }
+        var ids = [];
+        for (var i = 0; i < itemKeys.length; i++) {
+          var item = Zotero.Items.getByLibraryAndKey(libraryID, itemKeys[i]);
+          if (item && collection.hasItem(item.id)) {
+            ids.push(item.id);
+          }
+        }
+        if (ids.length) {
+          await Zotero.DB.executeTransaction(async function () {
+            await collection.removeItems(ids);
+          });
+        }
+        return [200, "application/json", JSON.stringify({ success: true, removed: ids.length })];
+      } catch (e) {
+        Zotero.logError("removeFromCollection error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
     Zotero.logError("zotero-nvim-connector: startup complete");
   } catch (e) {
     Zotero.logError("zotero-nvim-connector: startup FAILED: " + (e.message || String(e)));
@@ -1139,4 +1177,5 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/toggleTag"];
   delete Zotero.Server.Endpoints["/connector/setTagColor"];
   delete Zotero.Server.Endpoints["/connector/deleteTag"];
+  delete Zotero.Server.Endpoints["/connector/removeFromCollection"];
 }

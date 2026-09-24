@@ -452,6 +452,82 @@ describe("items (real buffers, fixture db)", function()
     end)
   end)
 
+  describe("cr: remove from collection", function()
+    local api = require("zotero.api")
+    local async_mod = require("zotero.async")
+    local orig_remove, orig_confirm, orig_notify, calls, notes
+
+    local function text()
+      return table.concat(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false), "\n")
+    end
+
+    local function line_of(pattern)
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do
+        if l:match(pattern) then return i end
+      end
+    end
+
+    before_each(function()
+      calls, notes = {}, {}
+      orig_remove, orig_confirm, orig_notify = api.remove_from_collection, vim.fn.confirm, async_mod.notify
+      api.remove_from_collection = function(keys, collection_key)
+        table.sort(keys)
+        calls[#calls + 1] = { keys = keys, collection = collection_key }
+        return async_mod.run("mock", function() return false end) -- skip the re-render
+      end
+      vim.fn.confirm = function() return 1 end
+      async_mod.notify = function(m, ...)
+        notes[#notes + 1] = m
+        return orig_notify(m, ...)
+      end
+      -- Root A (collection 1) holds items 1 (book) and 2 (article).
+      local buf = layout.get_items_buf()
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+      vim.bo[buf].modifiable = false
+      items.load_items(1)
+      assert(vim.wait(5000, function() return text():match("Origin") and text():match("Microclimate") end, 20))
+      layout.focus_items()
+    end)
+
+    after_each(function()
+      api.remove_from_collection, vim.fn.confirm, async_mod.notify = orig_remove, orig_confirm, orig_notify
+      items.load_items(nil)
+    end)
+
+    it("removes the item under the cursor from the collection being viewed", function()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Microclimate"), 0 })
+      feed("cr")
+      vim.wait(2000, function() return #calls == 1 end, 20)
+      assert.same({ keys = { "ART00002" }, collection = "COLLA001" }, calls[1])
+    end)
+
+    it("removes every item of a visual selection", function()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { 3, 0 })
+      feed("Vjcr")
+      vim.wait(2000, function() return #calls == 1 end, 20)
+      assert.same({ keys = { "ART00002", "BOOK0001" }, collection = "COLLA001" }, calls[1])
+    end)
+
+    it("does nothing when not confirmed", function()
+      vim.fn.confirm = function() return 2 end
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Microclimate"), 0 })
+      feed("cr")
+      vim.wait(300, function() return false end, 20)
+      assert.same({}, calls)
+    end)
+
+    it("explains itself outside a collection (e.g. in My Library)", function()
+      items.load_items(nil)
+      vim.wait(3000, function() return text():match("Field Report") ~= nil end, 20)
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { 3, 0 })
+      feed("cr")
+      vim.wait(1000, function() return #notes > 0 end, 20)
+      assert.same({}, calls)
+      assert.matches("open a collection first", notes[#notes])
+    end)
+  end)
+
   describe("yank keys", function()
     local function line_of(pattern)
       for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do

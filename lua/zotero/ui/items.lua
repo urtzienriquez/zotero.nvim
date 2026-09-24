@@ -1239,11 +1239,11 @@ end
 
 -- Runs a user-triggered tag action as a task and reports any error: nightly's
 -- vim.async doesn't surface errors from tasks nobody awaits.
-local function run_tag_action(name, fn)
+local function run_tag_action(name, fn, label)
   async_mod.run(name, function()
     local ok, err = pcall(fn)
     if not ok then
-      async_mod.notify("zotero: tag action failed: " .. tostring(err), vim.log.levels.ERROR)
+      async_mod.notify("zotero: " .. (label or "tag action") .. " failed: " .. tostring(err), vim.log.levels.ERROR)
     end
   end)
 end
@@ -1288,6 +1288,41 @@ local function toggle_colored_tag(n)
     end
     M.toggle_tag_on(list, tag.name)
   end)
+end
+
+-- cr: remove the item(s) from the collection being viewed, keeping them in
+-- the library (Zotero's "Remove Item from Collection…").
+local function remove_from_collection()
+  if M.readonly_guard() then
+    return
+  end
+  local collection_id = current_collection_id
+  if not collection_id or is_trash_mode or show_only_marked then
+    async_mod.notify("zotero: open a collection first; this removes items from the collection you're viewing",
+      vim.log.levels.INFO)
+    return
+  end
+  local list = selected_items()
+  if #list == 0 then
+    return
+  end
+  local what = #list == 1 and ("'" .. sql_str(list[1].title, "(no title)") .. "'") or (#list .. " items")
+  if vim.fn.confirm("Remove " .. what .. " from this collection? (It stays in My Library.)", "&Yes\n&No", 2) ~= 1 then
+    return
+  end
+  run_tag_action("zotero:ui.items.remove_from_collection", function()
+    local key_map = async_mod.await(db.get_item_keys(vim.tbl_map(function(i) return i.itemID end, list)))
+    local collection_key = async_mod.await(db.get_collection_key(collection_id))
+    local keys = vim.tbl_values(key_map)
+    if #keys == 0 or not collection_key or collection_key == "" then
+      async_mod.notify("zotero: could not resolve item or collection keys", vim.log.levels.ERROR)
+      return
+    end
+    if async_mod.await(require("zotero.api").remove_from_collection(keys, collection_key)) then
+      async_mod.to_main()
+      M.fetch_and_render(true)
+    end
+  end, "removing from the collection")
 end
 
 -- tt: a checklist of all tags showing which the item(s) have; toggle as
@@ -1654,6 +1689,7 @@ function M.set_keymaps()
 
   map("n", "items_filter_type", M.pick_type_filter, "filter by item type")
   map("n", "items_filter_tag", M.pick_tag_filter, "filter by tag")
+  map({ "n", "x" }, "items_remove_from_collection", remove_from_collection, "remove item(s) from this collection")
   map({ "n", "x" }, "items_toggle_tag", pick_tag_to_toggle, "toggle a tag on item(s)")
   -- t1..t9 (with the default prefix): toggle Zotero's colored tag N.
   local tag_prefix = km.items_toggle_colored_tag
