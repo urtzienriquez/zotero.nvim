@@ -7,10 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         neovim_version: [stable, nightly]
     steps:
       - uses: actions/checkout@v4
@@ -20,8 +21,14 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim_version }}
 
+      # macOS runners ship Apple's sqlite3 (the one Mac users have too), so
+      # only Linux needs it installed.
       - name: Install sqlite3
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Show sqlite3 version
+        run: sqlite3 --version
 
       - name: Clone plenary.nvim
         run: git clone --depth 1 https://github.com/nvim-lua/plenary.nvim tests/deps/plenary.nvim
