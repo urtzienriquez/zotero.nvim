@@ -196,7 +196,6 @@ require("zotero").setup({
     -- Edit buffer (ee); save with :w or :ZoteroSave
     edit_regenerate_key         = "gK",
     edit_show_fields            = "K",
-    edit_close                  = "q",
     edit_show_help              = "g?",
   },
 })
@@ -282,7 +281,8 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `K`                          | List available fields for item type   |
 | `gK`                         | Regenerate Better BibTeX citation key |
 | `g?`                         | Open `:help` at the edit-buffer keymaps |
-| `q`                          | Close editor                          |
+| `:wq`                        | Save and close (stays open if the save fails) |
+| `:q` / `:q!`                 | Close / close discarding changes      |
 
 ### Keeping the old keymaps
 

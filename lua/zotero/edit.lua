@@ -113,6 +113,24 @@ local function refresh_buffer_async(buf, item_id, item_type_id)
   write_buffer(buf, item_id, data, item_type_id, header_lines, json_lines, all_types)
 end
 
+-- :w / :ZoteroSave. Waits for the save to finish, like writing a file:
+-- 'modified' is reset only once Zotero has the changes, and a :wq only
+-- quits when the BufWriteCmd has reset it -- so a failed save keeps the
+-- window open with your edits instead of closing and losing them.
+local function write_now(buf)
+  local done, saved = false, false
+  M.save_edit(buf):on_complete(function(err, ok)
+    done, saved = true, not err and ok == true
+  end)
+  local timeout = (require("zotero.config").get().http_timeout or 60000) + 5000
+  vim.wait(timeout, function() return done end, 20)
+  if not done then
+    async_mod.notify("zotero: save still running; the edit buffer stays open", vim.log.levels.WARN)
+  elseif saved and vim.api.nvim_buf_is_valid(buf) then
+    vim.bo[buf].modified = false
+  end
+end
+
 function M.open_edit(item_id)
   async_mod.run("zotero:edit.open", function()
     local t_item_type_id = db.get_item_type_id(item_id)
@@ -168,13 +186,13 @@ function M.open_edit(item_id)
     local buf_id = buf
 
     vim.api.nvim_buf_create_user_command(buf, "ZoteroSave", function()
-      M.save_edit(buf_id)
+      write_now(buf_id)
     end, { desc = "Save changes to Zotero" })
 
     vim.api.nvim_create_autocmd("BufWriteCmd", {
       buffer = buf,
       callback = function()
-        M.save_edit(buf_id)
+        write_now(buf_id)
       end,
     })
 
@@ -185,14 +203,6 @@ function M.open_edit(item_id)
         vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, desc = desc })
       end
     end
-
-    map("edit_close", function()
-      local pw = vim.b[buf_id].zotero_prev_win
-      if pw and vim.api.nvim_win_is_valid(pw) then
-        vim.api.nvim_set_current_win(pw)
-      end
-      vim.api.nvim_buf_delete(buf_id, { force = true })
-    end, "close editor")
 
     map("edit_show_help", function()
       vim.cmd.help("zotero-edit-maps")
@@ -241,7 +251,7 @@ function M.save_edit(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
+    return async_mod.run("zotero:edit.save", function() return false end)
   end
 
   local api = require("zotero.api")
@@ -255,7 +265,9 @@ function M.save_edit(bufnr)
   local item_id = vim.b[bufnr].zotero_item_id
   local item_type_id = vim.b[bufnr].zotero_item_type_id
 
-  async_mod.run("zotero:edit.save", function()
+  -- Returns the task; it resolves to true once the changes are saved (or
+  -- there were none), nil when the save was refused or failed.
+  return async_mod.run("zotero:edit.save", function()
     if not async_mod.await(api.ping_async()) then
       async_mod.notify("zotero: Zotero is not running", vim.log.levels.ERROR)
       return
@@ -276,7 +288,7 @@ function M.save_edit(bufnr)
       end
       if not valid_types[updated.itemType] then
         async_mod.notify(
-          "zotero: invalid item type: " .. updated.itemType .. "\nPress ? to see available types",
+          "zotero: invalid item type: " .. updated.itemType .. "\nPress K to see available types",
           vim.log.levels.ERROR
         )
         return
@@ -312,7 +324,7 @@ function M.save_edit(bufnr)
       end
       if #invalid > 0 then
         async_mod.notify(
-          "zotero: invalid field(s): " .. table.concat(invalid, ", ") .. "\nPress ? to see available fields",
+          "zotero: invalid field(s): " .. table.concat(invalid, ", ") .. "\nPress K to see available fields",
           vim.log.levels.ERROR
         )
         return
@@ -415,7 +427,7 @@ function M.save_edit(bufnr)
 
     if not has_changes then
       async_mod.notify("zotero: no changes to save", vim.log.levels.INFO)
-      return
+      return true
     end
 
     local ok_result = async_mod.await(api.update_item(key, updates))
@@ -429,7 +441,12 @@ function M.save_edit(bufnr)
         items.fetch_and_render()
       end
 
-      refresh_buffer_async(bufnr, item_id, item_type_id)
+      -- In its own task, so :w doesn't also wait for the re-read (the
+      -- buffer may already be gone after :wq; write_buffer checks).
+      async_mod.run("zotero:edit.refresh", function()
+        refresh_buffer_async(bufnr, item_id, item_type_id)
+      end)
+      return true
     end
   end)
 end
