@@ -225,6 +225,13 @@ describe("db (against fixture sqlite db)", function()
       end)
 
       it("ft: searches the full text of indexed PDFs", function()
+        -- Zotero's full-text table is FTS5, which e.g. macOS's own sqlite3
+        -- lacks: there ft: can only match nothing (and warn).
+        local probe = vim.system({ "sqlite3", ":memory:", "CREATE VIRTUAL TABLE t USING fts5(x);" }):wait()
+        if probe.code ~= 0 then
+          pending("sqlite3 has no FTS5")
+          return
+        end
         local path = vim.fs.joinpath(vim.fs.dirname(fixture.db_path), "fulltext.sqlite")
         os.remove(path)
         local res = vim.system({ "sqlite3", path }, { text = true, stdin = [[
