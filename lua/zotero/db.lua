@@ -1111,6 +1111,37 @@ function M.get_item_detail(item_id)
   end)
 end
 
+-- Item counts per itemTypes.typeName for a view (a collection, a feed's
+-- library via library_id, or the whole user library), ignoring any type
+-- filter. Feeds the <leader>zT checklist.
+function M.get_type_counts(collection_id, library_id)
+  return async_mod.run("zotero:db.get_type_counts", function()
+    local lib = library_id or user_library_id()
+    local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
+    local where = not_child("i") .. " AND " .. not_trashed() .. " AND " .. in_library("i", lib)
+    if collection_id then
+      where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
+    end
+    local dbfile, key = cache_key("type_counts|" .. tostring(collection_id) .. "|" .. tostring(lib))
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
+    local sql = [[
+      SELECT it.typeName, COUNT(*) AS count
+      FROM items i
+      JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+      ]] .. join .. [[
+      WHERE ]] .. where .. [[
+      GROUP BY it.typeName
+      ORDER BY count DESC, it.typeName COLLATE NOCASE
+    ]]
+    local result = json_query(sql, dbfile)
+    cache_set(key, result)
+    return result
+  end)
+end
+
 function M.search_global(search_term, sort_by, sort_dir, limit_override, opts)
   return M.get_items(nil, search_term, sort_by, sort_dir, limit_override, opts)
 end

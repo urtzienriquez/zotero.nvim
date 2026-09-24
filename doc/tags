@@ -19,5 +19,6 @@ zotero-keymaps	zotero.txt	/*zotero-keymaps*
 zotero-open_library()	zotero.txt	/*zotero-open_library()*
 zotero-requirements	zotero.txt	/*zotero-requirements*
 zotero-setup()	zotero.txt	/*zotero-setup()*
+zotero-type-filter	zotero.txt	/*zotero-type-filter*
 zotero-usage	zotero.txt	/*zotero-usage*
 zotero.nvim	zotero.txt	/*zotero.nvim*

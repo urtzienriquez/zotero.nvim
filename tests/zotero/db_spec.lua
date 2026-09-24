@@ -450,6 +450,18 @@ describe("db (against fixture sqlite db)", function()
       assert.same({ 1 }, ids_of(items))
     end)
 
+    it("get_type_counts counts types per view, ignoring any type filter", function()
+      local function as_map(rows)
+        local m = {}
+        for _, r in ipairs(rows) do m[r.typeName] = r.count end
+        return m
+      end
+      -- library: 1 book, 2 articles, 1 document (5) + 1 document (8); 4 is a child attachment
+      assert.same({ book = 1, journalArticle = 2, document = 2 }, as_map(await(db.get_type_counts(nil, nil))))
+      assert.same({ book = 1, journalArticle = 1 }, as_map(await(db.get_type_counts(1, nil)))) -- Root A
+      assert.same({ journalArticle = 2 }, as_map(await(db.get_type_counts(nil, 2)))) -- the feed
+    end)
+
     it("does not serve a cached unfiltered result for a filtered query", function()
       await(db.get_items(nil, "", "dateAdded", "desc"))
       local items = await(db.get_items(nil, "", "dateAdded", "desc", nil, { include_types = { "book" } }))

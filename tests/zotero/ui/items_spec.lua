@@ -307,23 +307,6 @@ describe("items (real buffers, fixture db)", function()
       assert.does_not.match("Microclimate", text())
       assert.matches("types: only book", vim.wo[layout.get_items_win()].winbar)
     end)
-
-    it("type_filter_choices offers hide/unhide/only/show-all as appropriate", function()
-      local labels = function(choices)
-        return vim.tbl_map(function(c) return c.label end, choices)
-      end
-      local none = items.type_filter_choices({ "book", "thesis" }, { mode = "exclude", types = {} })
-      assert.same({ "Hide: book", "Hide: thesis", "Only: book", "Only: thesis" }, labels(none))
-
-      local hiding = items.type_filter_choices({ "book", "thesis" }, { mode = "exclude", types = { "book" } })
-      assert.same({ "Show all types", "Unhide: book", "Hide: thesis", "Only: book", "Only: thesis" }, labels(hiding))
-      assert.same({}, hiding[2].types)
-      assert.same({ "book", "thesis" }, hiding[3].types)
-
-      local only = items.type_filter_choices({ "book", "thesis" }, { mode = "include", types = { "book" } })
-      assert.same({ "Show all types", "Stop showing: book", "Also show: thesis", "Only: book", "Only: thesis" }, labels(only))
-      assert.same({ "book", "thesis" }, only[3].types)
-    end)
   end)
 
   describe("compact column mode", function()

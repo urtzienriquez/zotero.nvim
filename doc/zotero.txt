@@ -240,8 +240,17 @@ Items Pane~
   Scroll items with |j|/|k|. Press |<CR>| to see the full item
   detail. Search with |<leader>z/|, clear with |<leader>zc|.
   Sort with |<leader>zs| (title), |<leader>zS| (year), |<leader>zd| (date added).
-  Filter by item type with |<leader>zT| (see |:ZoteroFilterType|); the
+  Filter by item type with |<leader>zT| (or |:ZoteroFilterType|); the
   filter stays active when switching collections or feeds.
+
+Item-type checklist~                                    *zotero-type-filter*
+  <leader>zT opens a floating checklist of the item types in the current
+  view (library, collection or feed), with item counts. Changes apply to
+  the items list immediately:
+    <CR> / <Space>  Show/hide the type under the cursor
+    o               Show only the type under the cursor
+    a               Show all types
+    q / <Esc>       Close
 
 Detail Panel~
   Shows full metadata for the selected item, including abstract,
@@ -295,7 +304,7 @@ Items Pane~
   <Tab>           Focus collections pane
   <leader>zm      Toggle mark on item
   <leader>zl      Show only marked items
-  <leader>zT      Filter by item type (hide / show only / show all)
+  <leader>zT      Item-type checklist (see |zotero-type-filter|)
   g?              Show help
 
 Edit Buffer~
@@ -328,7 +337,7 @@ COMMANDS                                                  *zotero-commands*
                                                           *:ZoteroFilterType*
 :ZoteroFilterType [all | {type}... | -{type}...]
                       Filter the items list by item type. Without
-                      arguments opens a picker. `all` clears the filter,
+                      arguments opens the checklist. `all` clears the filter,
                       `book thesis` shows only those types, `-webpage -note`
                       hides those types.
 

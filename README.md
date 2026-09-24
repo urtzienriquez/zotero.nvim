@@ -12,6 +12,11 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - Fuzzy search (fzf-lua / telescope) and literal search (_EXPERIMENTAL_)
 - Item marking system: toggle marks, filter to show only marked items
 - Filter the item list by item type on the fly (`<leader>zT` / `:ZoteroFilterType`)
+
+  `<leader>zT` opens a checklist of the item types in the current view, with
+  counts. `<CR>`/`<Space>` shows or hides the type under the cursor, `o` shows
+  only that type, `a` shows all types again, `q` closes. The list updates as
+  you go, and the filter stays on when you switch collections or feeds.
 - Read-only Feeds section with unread counts (feed items never mix into My Library)
 - PDF import via Zotero Connector API with duplicate detection
 - Add items by identifier (DOI, ISBN, PMID, arXiv)
@@ -216,7 +221,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zt` | Toggle collections pane                               |
 | `<leader>zm` | Toggle mark on item                                   |
 | `<leader>zl` | Show only marked items                                |
-| `<leader>zT` | Filter by item type (hide / show only / show all)     |
+| `<leader>zT` | Item-type checklist (show/hide types, with counts)    |
 | `<leader>zg` | Toggle statuscolumn (signcolumn, numbers)             |
 | `<Tab>`      | Focus collections pane                                |
 | `g?`         | Show help popup                                       |
@@ -240,7 +245,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `:ZoteroAddFeed [url] [name]` | Subscribe to an RSS/Atom feed (prompts for the URL when omitted; name defaults to the feed's title) |
 | `:ZoteroImportOPML {file}` | Import feeds from an OPML file (already-subscribed URLs are skipped) |
 | `:ZoteroRefreshFeeds` | Fetch new items for all feeds |
-| `:ZoteroFilterType [all \| type... \| -type...]` | Filter items by type: no args opens the picker, `all` clears, `book thesis` shows only those, `-webpage -note` hides those |
+| `:ZoteroFilterType [all \| type... \| -type...]` | Filter items by type: no args opens the checklist, `all` clears, `book thesis` shows only those, `-webpage -note` hides those |
 
 ## Feeds
 

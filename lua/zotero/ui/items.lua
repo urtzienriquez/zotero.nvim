@@ -510,46 +510,11 @@ function M.set_type_filter(mode, types_list)
   M.fetch_and_render()
 end
 
--- Builds the <leader>zT picker entries for `type_names` given the current
--- `filter`: each entry is { label, mode, types } describing the filter to
--- switch to. Pure, so it's testable without a UI.
-function M.type_filter_choices(type_names, filter)
-  local active = {}
-  for _, t in ipairs(filter.types) do
-    active[t] = true
-  end
-  local function without(name)
-    return vim.tbl_filter(function(t) return t ~= name end, filter.types)
-  end
-  local function with(name)
-    local l = vim.deepcopy(filter.types)
-    l[#l + 1] = name
-    return l
-  end
-
-  local choices = {}
-  if #filter.types > 0 then
-    choices[#choices + 1] = { label = "Show all types", mode = "exclude", types = {} }
-  end
-  for _, name in ipairs(type_names) do
-    if filter.mode == "include" and #filter.types > 0 then
-      if active[name] then
-        choices[#choices + 1] = { label = "Stop showing: " .. name, mode = "include", types = without(name) }
-      else
-        choices[#choices + 1] = { label = "Also show: " .. name, mode = "include", types = with(name) }
-      end
-    else
-      if active[name] then
-        choices[#choices + 1] = { label = "Unhide: " .. name, mode = "exclude", types = without(name) }
-      else
-        choices[#choices + 1] = { label = "Hide: " .. name, mode = "exclude", types = with(name) }
-      end
-    end
-  end
-  for _, name in ipairs(type_names) do
-    choices[#choices + 1] = { label = "Only: " .. name, mode = "include", types = { name } }
-  end
-  return choices
+-- The view the type checklist counts types in: a collection, a feed, or the
+-- whole user library (also used for trash/marked, which the filter doesn't
+-- narrow further).
+function M.get_view_context()
+  return { collection_id = current_collection_id, library_id = current_feed_library_id }
 end
 
 -- Type names for :ZoteroFilterType completion: whatever is in the loaded
@@ -575,27 +540,7 @@ end
 
 function M.pick_type_filter()
   async_mod.run("zotero:ui.items.pick_type_filter", function()
-    local rows = async_mod.await(db.get_all_item_types()) or {}
-    local names = {}
-    for _, r in ipairs(rows) do
-      names[#names + 1] = r.typeName
-    end
-    -- get_all_item_types() leaves these out (they're for the edit form), but
-    -- standalone attachments/notes do show up in the list, so allow hiding them.
-    names[#names + 1] = "attachment"
-    names[#names + 1] = "note"
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
-
-    local choices = M.type_filter_choices(names, type_filter)
-    async_mod.to_main()
-    vim.ui.select(choices, {
-      prompt = "Filter item types:",
-      format_item = function(c) return c.label end,
-    }, function(choice)
-      if choice then
-        M.set_type_filter(choice.mode, choice.types)
-      end
-    end)
+    require("zotero.ui.type_filter").open()
   end)
 end
 
