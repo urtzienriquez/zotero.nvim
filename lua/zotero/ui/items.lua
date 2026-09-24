@@ -1283,8 +1283,7 @@ local function toggle_colored_tag(n)
   run_tag_action("zotero:ui.items.toggle_colored_tag", function()
     local tag = (async_mod.await(db.get_colored_tags()) or {})[n]
     if not tag then
-      async_mod.notify(("zotero: no colored tag %d -- assign one in Zotero: right-click a tag in the tag selector"
-        .. " → Assign Colour…"):format(n), vim.log.levels.INFO)
+      async_mod.notify(("zotero: no colored tag %d"):format(n), vim.log.levels.INFO)
       return
     end
     M.toggle_tag_on(list, tag.name)
