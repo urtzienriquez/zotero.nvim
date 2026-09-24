@@ -246,3 +246,64 @@ describe("edit.save_edit (fixture db, mocked connector)", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 end)
+
+describe("edit buffer keymaps", function()
+  local config = require("zotero.config")
+  local orig_regen
+
+  before_each(function()
+    fixture.setup()
+    orig_regen = api.regenerate_key
+  end)
+
+  after_each(function()
+    api.regenerate_key = orig_regen
+    fixture.teardown()
+  end)
+
+  local function open_buffer(item_id)
+    local wins_before = #vim.api.nvim_list_wins()
+    edit.open_edit(item_id)
+    wait_until(function() return #vim.api.nvim_list_wins() > wins_before end)
+    local buf = vim.api.nvim_get_current_buf()
+    wait_until(function() return vim.fn.maparg("q", "n", false, true).buffer == 1 end)
+    return buf
+  end
+
+  local function mapped(lhs)
+    return vim.fn.maparg(lhs, "n", false, true).buffer == 1
+  end
+
+  it("maps gK, K, q and g? and no longer the old <leader>zs / <leader>zk", function()
+    local buf = open_buffer(2)
+    assert.is_true(mapped("gK"))
+    assert.is_true(mapped("K"))
+    assert.is_true(mapped("q"))
+    assert.is_true(mapped("g?"))
+    assert.is_false(mapped("<leader>zs"))
+    assert.is_false(mapped("<leader>zk"))
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("gK regenerates the item's citation key", function()
+    local asked
+    api.regenerate_key = function(key)
+      asked = key
+      return async_mod.run("mock", function() return nil end)
+    end
+    local buf = open_buffer(2)
+    vim.api.nvim_feedkeys("gK", "x", false)
+    wait_until(function() return asked ~= nil end)
+    assert.equals("ART00002", asked)
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("takes its keys from the keymaps config", function()
+    config.set({ db_path = fixture.db_path, keymaps = { edit_regenerate_key = "<leader>zk", edit_show_fields = false } })
+    local buf = open_buffer(2)
+    assert.is_true(mapped("<leader>zk"))
+    assert.is_false(mapped("gK"))
+    assert.is_false(mapped("K"))
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+end)

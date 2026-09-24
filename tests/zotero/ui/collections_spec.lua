@@ -156,6 +156,25 @@ describe("collections (real buffers, fixture db)", function()
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
     end
 
+    it("sets its fold options only for its window, never the global ones", function()
+      local global_minlines, global_method = vim.go.foldminlines, vim.go.foldmethod
+      local types = {}
+      local au = vim.api.nvim_create_autocmd("OptionSet", {
+        pattern = "foldminlines",
+        callback = function() types[#types + 1] = vim.v.option_type end,
+      })
+      render_sync()
+      vim.api.nvim_del_autocmd(au)
+      local win = layout.get_collections_win()
+      assert.equals(0, vim.wo[win].foldminlines)
+      assert.equals("expr", vim.wo[win].foldmethod)
+      assert.equals(global_minlines, vim.go.foldminlines)
+      assert.equals(global_method, vim.go.foldmethod)
+      -- A "global" OptionSet makes Neovim's treesitter folding refresh every
+      -- buffer it knows, which fails on one that's already wiped.
+      assert.is_false(vim.tbl_contains(types, "global"))
+    end)
+
     it("starts with My Library open (collections shown) and Feeds folded", function()
       render_sync()
       assert.matches("▼ My Library %(5%)", text())

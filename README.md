@@ -193,6 +193,11 @@ require("zotero").setup({
     collections_refresh         = "R",
     collections_toggle_pane     = "tc",
     collections_show_help       = "g?",
+    -- Edit buffer (ee); save with :w or :ZoteroSave
+    edit_regenerate_key         = "gK",
+    edit_show_fields            = "K",
+    edit_close                  = "q",
+    edit_show_help              = "g?",
   },
 })
 ```
@@ -273,10 +278,10 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 
 | Key                          | Action                                |
 | ---------------------------- | ------------------------------------- |
-| `:w` / `:ZoteroSave` / `<leader>zs` | Save changes to Zotero         |
+| `:w` / `:ZoteroSave`         | Save changes to Zotero                |
 | `K`                          | List available fields for item type   |
+| `gK`                         | Regenerate Better BibTeX citation key |
 | `g?`                         | Open `:help` at the edit-buffer keymaps |
-| `<leader>zk`                 | Regenerate Better BibTeX citation key |
 | `q`                          | Close editor                          |
 
 ### Keeping the old keymaps
@@ -302,6 +307,7 @@ require("zotero").setup({
     toggle_statuscolumn = "<leader>zg",
     collections_new = "<leader>zN",       collections_delete = "<leader>zD",
     collections_refresh = "<leader>zr",   collections_toggle_pane = "<leader>zt",
+    edit_regenerate_key = "<leader>zk",
   },
 })
 ```
@@ -367,7 +373,7 @@ that registers the additional endpoints directly inside Zotero.
 
 The companion plugin is required for:
 
-- Editing item metadata (`ee`) and Better BibTeX key regeneration (`<leader>zk`)
+- Editing item metadata (`ee`) and Better BibTeX key regeneration (`gK` in the edit buffer)
 - Creating, moving items into, and trashing/erasing collections
 - Adding items by identifier (DOI/ISBN/PMID/arXiv)
 - Adding PDF attachments to existing items
