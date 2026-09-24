@@ -251,6 +251,7 @@ Item-type checklist~                                    *zotero-type-filter*
     o               Show only the type under the cursor
     a               Show all types
     q / <Esc>       Close
+    g?              Open this help
 
 Detail Panel~
   Shows full metadata for the selected item, including abstract,
@@ -258,61 +259,70 @@ Detail Panel~
 
 Edit Buffer~
   Opened with |<leader>ze| on an item. Edit the JSON representation,
-  then type |:w| or |:ZoteroSave|, or press |<leader>zs| to save. Press |g?|
-  to see valid field names. Press |<leader>zk| to regenerate the
-  Better BibTeX citation key.
+  then type |:w| or |:ZoteroSave|, or press |<leader>zs| to save. Press K
+  to see the valid field names for the item's type. Press |<leader>zk| to
+  regenerate the Better BibTeX citation key.
 
 ==============================================================================
 KEYMAPS                                                    *zotero-keymaps*
 
-Global~
-  <leader>zf      Fuzzy search all items
-  <leader>zz      Open/close Zotero browser
+Press g? in any zotero.nvim buffer to jump to its section below. These are
+the defaults; every key can be changed or disabled via `keymaps` in
+|zotero-setup()|.
 
-Collections Pane~
-  j / k           Navigate up/down
+Global~                                                 *zotero-global-maps*
+  <leader>zz      Open/close Zotero browser
+  <leader>zf      Fuzzy search all items
+
+Collections Pane~                                  *zotero-collections-maps*
+  j / k           Navigate up/down (also <Down> / <Up>)
   ]] / [[         Next / previous section
-  <CR>            Select collection, feed or Trash (loads items)
-  <Tab>           Focus items pane
-  <leader>zt      Toggle collections pane
+  <CR>            Select collection, feed, Marked or Trash (loads items);
+                  on a collection with children, also expand/collapse
+  <Tab> / <Esc>   Focus items pane
   <leader>zN      Create new collection (on Feeds/a feed: add a feed)
   <leader>zD      Trash selected collection (on a feed: unsubscribe)
   <leader>zr      Refresh (on a feed: fetch new items; on Feeds: all)
-  g?              Show help
+  <leader>zt      Toggle collections pane
+  <leader>zg      Toggle statuscolumn (signs, line numbers)
+  g?              Open this help
 
-Items Pane~
-  j / k           Navigate up/down
+Items Pane~                                              *zotero-items-maps*
+  j / k           Navigate up/down (also <Down> / <Up>)
+  gg / G          Go to first / last item
   <CR>            Show item detail
-  <leader>zR      Toggle read/unread (feed items)
   <leader>zo      Open attached file
   <leader>zb      Open URL/DOI in browser
-  <leader>ze      Edit item metadata
+  <leader>ze      Edit item metadata (see |zotero-edit-maps|)
   <leader>zi      Import PDF (standalone)
   <leader>za      Add PDF attachment to selected item
-  <leader>zM      Move item to collection
+  <leader>zF      Fix attachment / update item from a DOI or URL
   <leader>zn      Add item by identifier (DOI/ISBN/PMID/arXiv)
-  <leader>zD      Delete (trash) selected item; permanent delete in Trash view
+  <leader>zM      Move item(s) to collection         (visual: selection)
+  <leader>zD      Trash item(s); permanent delete in Trash (visual: selection)
+  <leader>zm      Toggle mark on item(s)             (visual: selection)
+  <leader>zl      Show only marked items
+  <leader>zR      Toggle read/unread, feed items     (visual: selection)
   <leader>zs      Sort by title
   <leader>zS      Sort by year
   <leader>zd      Sort by date added
   <leader>z/      Search
   <leader>zc      Clear search
-  <leader>zr      Refresh
-  <leader>zv      Toggle column view (configured/compact/normal/full)
-  <leader>zk      Regenerate BibTeX citation key
-  <leader>zt      Toggle collections pane
-  <Tab>           Focus collections pane
-  <leader>zm      Toggle mark on item
-  <leader>zl      Show only marked items
   <leader>zT      Item-type checklist (see |zotero-type-filter|)
-  g?              Show help
+  <leader>zr      Refresh (in a feed: fetch new items first)
+  <leader>zv      Toggle column view (configured/compact/normal/full)
+  <leader>zt      Toggle collections pane
+  <leader>zg      Toggle statuscolumn (signs, line numbers)
+  <Tab>           Focus collections pane
+  g?              Open this help
 
-Edit Buffer~
+Edit Buffer~                                              *zotero-edit-maps*
   :w, :ZoteroSave Save changes to Zotero
   <leader>zs      Save changes (alternative)
-  g?              Show available field names
+  K               List the fields valid for this item type, and all types
   <leader>zk      Regenerate Better BibTeX citation key
   q               Close editor
+  g?              Open this help
 
 ==============================================================================
 COMMANDS                                                  *zotero-commands*

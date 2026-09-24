@@ -1498,42 +1498,7 @@ function M.set_keymaps()
 end
 
 function M.show_help()
-  local lines = {
-    "zotero.nvim - Zotero Library Browser",
-    "──────────────────────────────────────",
-    "",
-    "Items Pane:",
-    "  j/k           Navigate",
-    "  <CR>          Show item detail",
-    "  <leader>zR    Toggle read/unread (feed items)",
-    "  <leader>zo    Open attachment",
-    "  <leader>zb    Open URL/DOI in browser",
-    "  <leader>ze    Edit item metadata",
-    "  <leader>zs    Sort by title",
-    "  <leader>zS    Sort by year",
-    "  <leader>zd    Sort by date added",
-    "  <leader>z/    Search",
-    "  <leader>zc    Clear search",
-    "  <leader>zr    Refresh",
-    "  <leader>zv    Toggle view (compact/normal/full)",
-    "  <leader>zt    Toggle collections pane",
-    "  <leader>zi    Import PDF",
-    "  <leader>za    Add attachment to item",
-    "  <leader>zm    Toggle mark on item",
-    "  <leader>zn    Add item by identifier (DOI/ISBN/etc.)",
-    "  <leader>zM    Move item to collection",
-    "  <leader>zl    Show only marked items",
-    "  <leader>zT    Filter by item type",
-    "  <leader>zD    Delete item (trash / permanent in Trash)",
-    "  <Tab>         Focus collections",
-    "",
-    "Search:",
-    "  <leader>zf    Fuzzy search (opens fzf/telescope picker)",
-    "  <leader>zc    Clear search filter",
-    "General:",
-    "  g?            This help",
-  }
-  async_mod.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "zotero" })
+  vim.cmd.help("zotero-items-maps")
 end
 
 function M.get_current_item()

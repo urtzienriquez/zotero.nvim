@@ -564,20 +564,7 @@ function M.set_keymaps()
 end
 
 function M.show_help()
-  async_mod.notify(table.concat({
-    "zotero.nvim - Collections",
-    "─────────────────────────",
-    "  j/k           Navigate",
-    "  <Up>/<Down>   Navigate (alternative)",
-    "  ]] / [[       Next / prev section",
-    "  <CR>          Select collection / feed / Trash",
-    "  <Tab>         Focus items pane",
-    "  <leader>zt    Toggle collections pane",
-    "  <leader>zN    Create collection (on Feeds: add feed)",
-    "  <leader>zD    Trash collection (on a feed: unsubscribe)",
-    "  <leader>zr    Refresh (on a feed / Feeds: fetch new items)",
-    "  g?            This help",
-  }, "\n"), vim.log.levels.INFO, { title = "zotero" })
+  vim.cmd.help("zotero-collections-maps")
 end
 
 function M.get_selected_collection_id()

@@ -9,7 +9,7 @@ local HEADER = [[
 // Type:   %s
 //
 // Edit the JSON below, then :w or :ZoteroSave to save changes to Zotero.
-// :q! or q to discard.  g? to see available field names.
+// :q! or q to discard.  K: available field names.  g?: help.
 // Empty string = delete field. Remove entries from creators/tags to delete.
 // ────────────────────────────────────────────────────────────────────
 ]]
@@ -191,7 +191,11 @@ function M.open_edit(item_id)
     end, { buffer = buf, silent = true, desc = "close editor" })
 
     vim.keymap.set("n", "g?", function()
-      async_mod.run("zotero:edit.help", function()
+      vim.cmd.help("zotero-edit-maps")
+    end, { buffer = buf, silent = true, desc = "open help at the edit-buffer maps" })
+
+    vim.keymap.set("n", "K", function()
+      async_mod.run("zotero:edit.fields", function()
         local item_type_id = vim.b[buf_id].zotero_item_type_id
         local type_name = vim.b[buf_id].zotero_item_type_name or "unknown"
         local fields = async_mod.await(db.get_item_type_fields(item_type_id))

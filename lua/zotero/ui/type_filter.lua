@@ -143,7 +143,7 @@ function M.open()
   for _, l in ipairs(lines) do
     width = math.max(width, vim.fn.strdisplaywidth(l))
   end
-  local footer = " <CR> toggle · o only · a all · q close "
+  local footer = " <CR> toggle · o only · a all · q close · g? help "
   width = math.min(math.max(width, vim.fn.strdisplaywidth(footer)), vim.o.columns - 4)
   local height = math.min(#lines, vim.o.lines - 6)
 
@@ -179,6 +179,10 @@ function M.open()
   map("o", on_row(function(_, name) return M.only(name) end), "show only this type")
   map("a", function() apply(M.all()) end, "show all types")
   map("q", M.close, "close")
+  map("g?", function()
+    M.close()
+    vim.cmd.help("zotero-type-filter")
+  end, "open help")
   map("<Esc>", M.close, "close")
 
   vim.api.nvim_create_autocmd("WinLeave", {

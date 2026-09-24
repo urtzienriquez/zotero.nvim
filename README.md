@@ -194,7 +194,7 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zN` | Create new collection (on Feeds or a feed: add a feed)     |
 | `<leader>zD` | Trash selected collection (on a feed: unsubscribe)         |
 | `<leader>zr` | Refresh (on a feed: fetch new items; on Feeds: all feeds)  |
-| `g?`         | Show help popup                                            |
+| `g?`         | Open `:help` at the collections-pane keymaps               |
 
 ### Items Pane
 
@@ -224,14 +224,15 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zT` | Item-type checklist (show/hide types, with counts)    |
 | `<leader>zg` | Toggle statuscolumn (signcolumn, numbers)             |
 | `<Tab>`      | Focus collections pane                                |
-| `g?`         | Show help popup                                       |
+| `g?`         | Open `:help` at the items-pane keymaps                |
 
 ### Edit Buffer
 
 | Key                          | Action                                |
 | ---------------------------- | ------------------------------------- |
 | `:w` / `:ZoteroSave` / `<leader>zs` | Save changes to Zotero         |
-| `g?`                         | List available fields for item type   |
+| `K`                          | List available fields for item type   |
+| `g?`                         | Open `:help` at the edit-buffer keymaps |
 | `<leader>zk`                 | Regenerate Better BibTeX citation key |
 | `q`                          | Close editor                          |
 
