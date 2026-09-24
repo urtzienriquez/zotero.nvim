@@ -50,7 +50,8 @@ INSERT INTO items VALUES
   (8, 5, 1, 'PLAIN008', '2020-06-06 00:00:00'),
   (9, 4, 2, 'FEED0009', '2020-07-01 00:00:00'),
   (10, 4, 2, 'FEED0010', '2020-07-02 00:00:00'),
-  (11, 4, 3, 'GRP00011', '2020-07-03 00:00:00');
+  (11, 4, 3, 'GRP00011', '2020-07-03 00:00:00'),
+  (12, 28, 1, 'ANNO0012', '2020-02-02 00:02:00');
 
 CREATE TABLE feedItems (itemID INTEGER PRIMARY KEY, guid TEXT NOT NULL, readTime TEXT);
 INSERT INTO feedItems VALUES
@@ -76,12 +77,14 @@ INSERT INTO itemDataValues VALUES
   (15, 'Feed article unread'),
   (16, 'Group article'),
   (17, '10.1000/dup'),
-  (18, 'https://example.org/unread');
+  (18, 'https://example.org/unread'),
+  (19, '10.5555/micro.2019'),
+  (20, 'darwin1859origin');
 
 CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
 INSERT INTO itemData VALUES
-  (1, 1, 1), (1, 6, 2),
-  (2, 1, 3), (2, 2, 4), (2, 6, 5), (2, 38, 6),
+  (1, 1, 1), (1, 6, 2), (1, 64, 20),
+  (2, 1, 3), (2, 2, 4), (2, 6, 5), (2, 38, 6), (2, 59, 19),
   (3, 1, 7), (3, 6, 8), (3, 38, 9),
   (5, 1, 10), (5, 6, 11),
   (4, 1, 12),
@@ -139,8 +142,9 @@ CREATE TABLE itemAttachments (
 );
 INSERT INTO itemAttachments VALUES (4, 2, 2, 'application/pdf', 'attachments:snapshot.pdf');
 
-CREATE TABLE itemAnnotations (itemID INTEGER, parentItemID INTEGER);
--- none seeded; table just needs to exist for not_child()'s subquery.
+CREATE TABLE itemAnnotations (itemID INTEGER, parentItemID INTEGER, text TEXT, comment TEXT);
+-- A highlight on item 2's PDF (attachment 4), for `note:` searches.
+INSERT INTO itemAnnotations VALUES (12, 4, 'warming shifts the treeline', 'revisit for chapter three');
 
 CREATE TABLE collections (
   collectionID INTEGER PRIMARY KEY, collectionName TEXT, parentCollectionID INTEGER,
