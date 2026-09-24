@@ -137,6 +137,7 @@ CONFIGURATION                                            *zotero-config*
         collections_next_section    = "]]",
         collections_prev_section    = "[[",
         collections_select          = "<CR>",
+        collections_toggle_fold     = "za",
         collections_focus_items     = "<Tab>",
         collections_focus_items_esc = "<Esc>",
         collections_new             = "aa",
@@ -296,7 +297,11 @@ Collections Pane~                                  *zotero-collections-maps*
   j / k           Navigate up/down (also <Down> / <Up>)
   ]] / [[         Next / previous section
   <CR>            Select collection, feed, Marked or Trash (loads items);
-                  on a collection with children, also expand/collapse
+                  on a collection with children, also expand/collapse;
+                  on the Feeds header, open/close Feeds
+  za              Open/close My Library, Feeds, or the collection under
+                  the cursor, without loading any items. My Library
+                  starts open, Feeds starts folded.
   <Tab> / <Esc>   Focus items pane
   aa              Add a collection (on Feeds or a feed: add a feed)
   dd              Trash the collection (on a feed: unsubscribe)

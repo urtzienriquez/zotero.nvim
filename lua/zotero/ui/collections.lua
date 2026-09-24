@@ -13,6 +13,9 @@ local cursor_line = 1
 local total_item_count = 0
 local trash_count = 0
 local feeds_data = {}
+-- Foldable top-level sections: My Library starts open (showing its
+-- collections), Feeds starts folded.
+local section_open = { library = true, feeds = false }
 local collection_keys_by_id = {}
 local _render_version = nil
 -- Bumped by M.render()/M.refresh_counts(); lets a superseded in-flight
@@ -33,13 +36,18 @@ local function get_display_lines()
     return _display_lines_cache
   end
 
+  local function fold_arrow(open)
+    return open and "▼ " or "▶ "
+  end
+
   local lines = {}
   table.insert(lines, {
-    line = "  My Library (" .. tostring(total_item_count) .. ")",
+    line = fold_arrow(section_open.library) .. "My Library (" .. tostring(total_item_count) .. ")",
     collectionID = nil,
     has_children = false,
     depth = 0,
     is_all_items = true,
+    section = "library",
   })
 
   local children_of = {}
@@ -51,12 +59,13 @@ local function get_display_lines()
 
   for _, col in ipairs(collections_data) do
     local show = false
-    if col.depth == 0 or expanded[col.parentCollectionID] then
+    if section_open.library and (col.depth == 0 or expanded[col.parentCollectionID]) then
       show = true
     end
 
     if show then
-      local indent = string.rep("  ", col.depth)
+      -- One level deeper than the My Library header they sit under.
+      local indent = string.rep("  ", col.depth + 1)
       local has_children = children_of[col.collectionID] or false
       local arrow = has_children and (expanded[col.collectionID] and "▼ " or "▶ ") or "  "
       local count_str = " (" .. tostring(col.item_count) .. ")"
@@ -81,13 +90,14 @@ local function get_display_lines()
       total_unread = total_unread + (tonumber(feed.unread) or 0)
     end
     table.insert(lines, {
-      line = "  Feeds (" .. tostring(total_unread) .. ")",
+      line = fold_arrow(section_open.feeds) .. "Feeds (" .. tostring(total_unread) .. ")",
       collectionID = nil,
       has_children = false,
       depth = 0,
       is_feeds_header = true,
+      section = "feeds",
     })
-    for _, feed in ipairs(feeds_data) do
+    for _, feed in ipairs(section_open.feeds and feeds_data or {}) do
       table.insert(lines, {
         line = "    " .. feed.name .. " (" .. tostring(feed.unread or 0) .. ")",
         collectionID = nil,
@@ -297,6 +307,8 @@ function M.add_feed(url, name)
     async_mod.run("zotero:ui.collections.add_feed", function()
       local res = async_mod.await(require("zotero.api").add_feed(vim.trim(u), name))
       if res then
+        async_mod.to_main()
+        M.set_section_open("feeds", true)
         M.refresh_counts()
       end
     end)
@@ -343,11 +355,47 @@ end
 
 -- Focuses the collections pane (showing it if hidden) with the cursor on
 -- the Feeds header. Used by goto_feeds (gf) in both panes.
+function M.is_section_open(name)
+  return section_open[name] == true
+end
+
+-- Opens/closes a top-level section ("library" or "feeds") and repaints.
+function M.set_section_open(name, open)
+  if section_open[name] == nil or section_open[name] == open then
+    return
+  end
+  section_open[name] = open
+  _structure_version = _structure_version + 1
+  M.refresh_display()
+end
+
+-- collections_toggle_fold (za): open/close the section header or collection
+-- under the cursor, without loading any items.
+local function toggle_fold()
+  local win = layout.get_collections_win()
+  if not win then
+    return
+  end
+  cursor_line = vim.api.nvim_win_get_cursor(win)[1]
+  local entry = M.get_collection_at_line(cursor_line)
+  if not entry then
+    return
+  end
+  if entry.section then
+    M.set_section_open(entry.section, not section_open[entry.section])
+  elseif entry.has_children then
+    expanded[entry.collectionID] = not expanded[entry.collectionID] or nil
+    _structure_version = _structure_version + 1
+    M.refresh_display()
+  end
+end
+
 function M.focus_feeds()
   if not layout.get_collections_win() or not vim.api.nvim_win_is_valid(layout.get_collections_win()) then
     layout.toggle_collections()
   end
   layout.focus_collections()
+  M.set_section_open("feeds", true)
   for i, dl in ipairs(get_display_lines()) do
     if dl.is_feeds_header then
       cursor_line = i
@@ -381,7 +429,12 @@ local function on_enter()
     return
   end
 
-  if entry.is_separator or entry.is_feeds_header then
+  if entry.is_separator then
+    return
+  end
+
+  if entry.is_feeds_header then
+    M.set_section_open("feeds", not section_open.feeds)
     return
   end
 
@@ -501,6 +554,7 @@ function M.set_keymaps()
   end, "prev section")
 
   map("n", "collections_select", on_enter, "select collection")
+  map("n", "collections_toggle_fold", toggle_fold, "open/close section or collection")
 
   map("n", "collections_toggle_pane", function()
     layout.toggle_collections()

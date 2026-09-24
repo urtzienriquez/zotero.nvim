@@ -25,6 +25,9 @@ describe("collections (real buffers, fixture db)", function()
   before_each(function()
     fixture.setup()
     layout.create_layout()
+    -- Section fold state is module-level; start every test from the defaults.
+    collections.set_section_open("library", true)
+    collections.set_section_open("feeds", false)
   end)
 
   after_each(function()
@@ -111,10 +114,86 @@ describe("collections (real buffers, fixture db)", function()
 
   it("renders a Feeds section with unread counts, separate from My Library", function()
     render_sync()
+    collections.set_section_open("feeds", true)
     local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false), "\n")
     assert.matches("Feeds %(1%)", text)
     assert.matches("Journal RSS %(1%)", text)
     assert.does_not.match("Group Col", text) -- group-library collection stays out
+  end)
+
+  describe("foldable sections", function()
+    local function lines()
+      return vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
+    end
+    local function text()
+      return table.concat(lines(), "\n")
+    end
+    local function press_on(pattern, keys)
+      layout.focus_collections()
+      for i, l in ipairs(lines()) do
+        if l:match(pattern) then
+          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
+          break
+        end
+      end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
+    end
+
+    it("starts with My Library open (collections shown) and Feeds folded", function()
+      render_sync()
+      assert.matches("▼ My Library %(5%)", text())
+      assert.matches("Root A %(2%)", text())
+      assert.matches("▶ Feeds %(1%)", text())
+      assert.does_not.match("Journal RSS", text())
+    end)
+
+    it("za folds and unfolds My Library without loading items", function()
+      render_sync()
+      local items = require("zotero.ui.items")
+      local loaded = false
+      local orig = items.load_items
+      items.load_items = function() loaded = true end
+      press_on("My Library", "za")
+      assert.matches("▶ My Library", text())
+      assert.does_not.match("Root A", text())
+      press_on("My Library", "za")
+      assert.matches("▼ My Library", text())
+      assert.matches("Root A", text())
+      items.load_items = orig
+      assert.is_false(loaded)
+    end)
+
+    it("<CR> on My Library loads its items but does not fold it", function()
+      render_sync()
+      local items = require("zotero.ui.items")
+      local loaded_with = "not called"
+      local orig = items.load_items
+      items.load_items = function(id) loaded_with = id end
+      press_on("My Library", "<CR>")
+      items.load_items = orig
+      assert.is_nil(loaded_with) -- load_items(nil) = the whole library
+      assert.matches("▼ My Library", text())
+      assert.matches("Root A", text())
+    end)
+
+    it("<CR> and za both open and close Feeds", function()
+      render_sync()
+      press_on("Feeds %(", "<CR>")
+      assert.matches("▼ Feeds", text())
+      assert.matches("Journal RSS %(1%)", text())
+      press_on("Feeds %(", "za")
+      assert.matches("▶ Feeds", text())
+      assert.does_not.match("Journal RSS", text())
+    end)
+
+    it("za on a collection with children folds it without selecting it", function()
+      render_sync()
+      press_on("Root A", "za")
+      assert.does_not.match("Child of A", text())
+      assert.is_nil(collections.get_selected_collection_id())
+      press_on("Root A", "za")
+      assert.matches("Child of A", text())
+    end)
   end)
 
   it("selecting a feed (Enter) lists that feed's items", function()
@@ -122,6 +201,7 @@ describe("collections (real buffers, fixture db)", function()
     layout.close()
     layout.create_layout()
     render_sync()
+    collections.set_section_open("feeds", true)
     layout.focus_collections()
     local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
     local target_line = nil
@@ -152,6 +232,7 @@ describe("collections (real buffers, fixture db)", function()
     local calls
 
     before_each(function()
+      collections.set_section_open("feeds", true) -- these tests act on feed lines
       calls = {}
       for _, name in ipairs({ "add_feed", "delete_feed", "refresh_feeds" }) do
         orig[name] = api[name]
@@ -198,7 +279,7 @@ describe("collections (real buffers, fixture db)", function()
 
     it("aa on the Feeds header prompts for a URL and adds a feed", function()
       render_sync()
-      press_on("^  Feeds", "aa")
+      press_on("Feeds %(", "aa")
       assert.same({ "add_feed", "https://example.org/new.xml" }, calls[1])
     end)
 
@@ -225,7 +306,7 @@ describe("collections (real buffers, fixture db)", function()
       press_on("Journal RSS", "R")
       assert.same({ "refresh_feeds", 2 }, calls[1])
       calls = {}
-      press_on("^  Feeds", "R")
+      press_on("Feeds %(", "R")
       assert.same({ "refresh_feeds" }, calls[1]) -- library_id nil = all feeds
     end)
   end)
