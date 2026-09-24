@@ -338,14 +338,20 @@ describe("items (real buffers, fixture db)", function()
         return orig_notify(msg, ...)
       end
       items.set_tag_filter({})
-      fetch_sync()
-      -- Wait for the full, unfiltered library (5 items): a render triggered by
-      -- the previous test can still be landing, and the line numbers below
-      -- must match what the keys act on.
-      vim.wait(3000, function()
-        local bar = vim.wo[layout.get_items_win()].winbar
-        return bar:match(" 5 items") ~= nil and not bar:match("tags:") and not bar:match("types:")
+      -- Blank the buffer, then wait until the full, unfiltered library is
+      -- actually rendered: the buffer and the (new) window's winbar can still
+      -- show a previous test's view, and the line numbers below must match
+      -- what the keys act on.
+      local buf = layout.get_items_buf()
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+      vim.bo[buf].modifiable = false
+      items.load_items(nil)
+      local ready = vim.wait(10000, function()
+        local t = text()
+        return t:match("Origin") and t:match("Microclimate") and t:match("Population") and t:match("Field Report")
       end, 20)
+      assert(ready, "the full library did not render")
       layout.focus_items()
     end)
 
