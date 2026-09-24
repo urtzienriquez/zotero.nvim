@@ -178,6 +178,21 @@ describe("api (mocked connector)", function()
       assert.matches("companion plugin to 1%.4%.0", msgs[1])
     end)
 
+    it("remove_from_collection sends the item keys and collection key", function()
+      mock_http(ok({ removed = 2 }))
+      assert.is_true(run(api.remove_from_collection({ "K1", "K2" }, "COLL0001")))
+      assert.matches("/connector/removeFromCollection$", captured_url)
+      assert.same({ itemKeys = { "K1", "K2" }, collectionKey = "COLL0001" }, captured_body)
+
+      mock_http({ code = 0, http_code = 404, body = "No endpoint found" })
+      local msgs = {}
+      local orig_notify = async_mod.notify
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      assert.is_false(run(api.remove_from_collection({ "K1" }, "COLL0001")))
+      async_mod.notify = orig_notify
+      assert.matches("companion plugin to 1%.5%.0", msgs[1])
+    end)
+
     it("toggle_tag asks for companion plugin 1.3.0 when the endpoint is missing", function()
       mock_http({ code = 0, http_code = 404, body = "No endpoint found" })
       local msgs = {}

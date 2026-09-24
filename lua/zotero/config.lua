@@ -36,6 +36,7 @@ M.defaults = {
     -- single actions (also work on a visual selection)
     items_delete = "dd",
     items_move_to_collection = "cm",
+    items_remove_from_collection = "cr",
     items_toggle_mark = "mm",
     items_toggle_read = "rr",
     -- y: yank (into the register given, e.g. "+yk for the clipboard)

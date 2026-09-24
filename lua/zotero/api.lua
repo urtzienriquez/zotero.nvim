@@ -280,6 +280,22 @@ function M.delete_tag(tag, opts)
   end)
 end
 
+-- Removes items (user-library keys) from the collection `collection_key`
+-- without deleting them from the library. Returns true/false.
+function M.remove_from_collection(item_keys, collection_key)
+  return m_run("remove_from_collection", function()
+    local ok, res = post_feed_endpoint("/connector/removeFromCollection",
+      { itemKeys = item_keys, collectionKey = collection_key }, "1.5.0")
+    if not ok then
+      async_mod.notify("zotero: removing from the collection failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    async_mod.notify(("zotero: removed %d item(s) from the collection (still in My Library)")
+      :format(tonumber(res.removed) or #item_keys), vim.log.levels.INFO)
+    return true
+  end)
+end
+
 -- Subscribes to an RSS/Atom feed. `name` is optional (defaults to the feed's
 -- own title). Returns the endpoint's response ({ libraryID, name, ... }) or nil.
 function M.add_feed(url, name)

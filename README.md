@@ -151,6 +151,7 @@ require("zotero").setup({
     items_add_by_identifier  = "an",
     items_delete             = "dd",
     items_move_to_collection = "cm",
+    items_remove_from_collection = "cr",
     items_toggle_mark        = "mm",
     items_toggle_read        = "rr",
     items_yank_citation_key  = "yk",   -- y: yank
@@ -252,6 +253,7 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `an`        | Add item by identifier (DOI/ISBN/PMID/arXiv)            |
 | `dd`        | Trash item(s); permanent delete in Trash                |
 | `cm`        | Move item(s) to a collection                            |
+| `cr`        | Remove item(s) from the collection you're viewing (they stay in My Library; needs companion plugin 1.5.0) |
 | `mm`        | Toggle mark                                             |
 | `rr`        | Toggle read/unread (feed items)                         |
 | `st` / `sy` / `sd` | Sort by title / year / date added (again: reverse) |
@@ -266,7 +268,7 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `o?` `e?` `a?` `y?` `s?` `f?` `t?` | `:help` for that family         |
 | `g?`        | Open `:help` at the items-pane keymaps                  |
 
-`dd`, `cm`, `mm` and `rr` also work on a visual selection.
+`dd`, `cm`, `cr`, `mm` and `rr` also work on a visual selection.
 
 ### Edit Buffer
 
