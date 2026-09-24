@@ -178,23 +178,27 @@ function M.open_edit(item_id)
       end,
     })
 
-    vim.keymap.set("n", "<leader>zs", function()
-      M.save_edit(buf_id)
-    end, { buffer = buf, silent = true, desc = "save changes" })
+    local km = require("zotero.config").get().keymaps
+    local function map(name, rhs, desc)
+      local lhs = km.enabled ~= false and km[name]
+      if lhs then
+        vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, desc = desc })
+      end
+    end
 
-    vim.keymap.set("n", "q", function()
+    map("edit_close", function()
       local pw = vim.b[buf_id].zotero_prev_win
       if pw and vim.api.nvim_win_is_valid(pw) then
         vim.api.nvim_set_current_win(pw)
       end
       vim.api.nvim_buf_delete(buf_id, { force = true })
-    end, { buffer = buf, silent = true, desc = "close editor" })
+    end, "close editor")
 
-    vim.keymap.set("n", "g?", function()
+    map("edit_show_help", function()
       vim.cmd.help("zotero-edit-maps")
-    end, { buffer = buf, silent = true, desc = "open help at the edit-buffer maps" })
+    end, "open help at the edit-buffer maps")
 
-    vim.keymap.set("n", "K", function()
+    map("edit_show_fields", function()
       async_mod.run("zotero:edit.fields", function()
         local item_type_id = vim.b[buf_id].zotero_item_type_id
         local type_name = vim.b[buf_id].zotero_item_type_name or "unknown"
@@ -215,9 +219,9 @@ function M.open_edit(item_id)
 
         async_mod.notify(help_text, vim.log.levels.INFO, { title = "zotero: fields" })
       end)
-    end, { buffer = buf, silent = true, desc = "show available fields and types" })
+    end, "show available fields and types")
 
-    vim.keymap.set("n", "<leader>zk", function()
+    map("edit_regenerate_key", function()
       local key = vim.b[buf_id].zotero_key
       local api = require("zotero.api")
       async_mod.run("zotero:edit.regenerate_key", function()
@@ -227,7 +231,7 @@ function M.open_edit(item_id)
           refresh_buffer_async(buf_id, vim.b[buf_id].zotero_item_id, vim.b[buf_id].zotero_item_type_id)
         end
       end)
-    end, { buffer = buf, silent = true, desc = "regenerate citation key" })
+    end, "regenerate citation key")
 
     vim.api.nvim_win_set_height(win, math.min(vim.api.nvim_buf_line_count(buf) + 2, 25))
   end)

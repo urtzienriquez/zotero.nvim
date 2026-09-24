@@ -152,6 +152,11 @@ CONFIGURATION                                            *zotero-config*
         collections_refresh         = "R",
         collections_toggle_pane     = "tc",
         collections_show_help       = "g?",
+        -- Edit buffer (ee); save with :w or :ZoteroSave
+        edit_regenerate_key         = "gK",
+        edit_show_fields            = "K",
+        edit_close                  = "q",
+        edit_show_help              = "g?",
       },
 
       -- Initial sort column: "dateAdded", "year", "title"
@@ -196,10 +201,9 @@ After installing and restarting Zotero, the following features are available in
 the edit buffer (opened with `ee` on an item):
 
   - :w or :ZoteroSave      Save changes to Zotero
-  - <leader>zs             Save changes to Zotero (alternative)
-  - g?                     List available field names for the item type
-  - <leader>zk             Regenerate Better BibTeX citation key
-  - q                      Close editor
+  - gK                     Regenerate Better BibTeX citation key
+
+  See |zotero-edit-maps| for all the edit-buffer keys.
 
 ==============================================================================
 USAGE                                                          *zotero-usage*
@@ -450,10 +454,9 @@ Detail Panel~
   tags, notes, and attachments. Press |q| or |<Esc>| to close.
 
 Edit Buffer~
-  Opened with `ee` on an item. Edit the JSON representation,
-  then type |:w| or |:ZoteroSave|, or press <leader>zs to save. Press K
-  to see the valid field names for the item's type. Press <leader>zk to
-  regenerate the Better BibTeX citation key.
+  Opened with `ee` on an item. Edit the JSON representation, then save
+  with |:w| (or |:ZoteroSave|). Press K to see the valid field names for
+  the item's type. Press gK to regenerate the Better BibTeX citation key.
 
 ==============================================================================
 KEYMAPS                                                    *zotero-keymaps*
@@ -587,14 +590,14 @@ Old keymaps~                                         *zotero-legacy-keymaps*
         toggle_statuscolumn = "<leader>zg",
         collections_new = "<leader>zN",       collections_delete = "<leader>zD",
         collections_refresh = "<leader>zr",   collections_toggle_pane = "<leader>zt",
+        edit_regenerate_key = "<leader>zk",
       },
     })
 <
 Edit Buffer~                                              *zotero-edit-maps*
   :w, :ZoteroSave Save changes to Zotero
-  <leader>zs      Save changes (alternative)
   K               List the fields valid for this item type, and all types
-  <leader>zk      Regenerate Better BibTeX citation key
+  gK              Regenerate Better BibTeX citation key
   q               Close editor
   g?              Open this help
 

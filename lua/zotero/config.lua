@@ -88,6 +88,11 @@ M.defaults = {
     collections_refresh = "R",
     collections_toggle_pane = "tc",
     collections_show_help = "g?",
+    -- Edit buffer (ee); save with :w or :ZoteroSave
+    edit_regenerate_key = "gK",
+    edit_show_fields = "K",
+    edit_close = "q",
+    edit_show_help = "g?",
   },
   default_sort = "dateAdded",
   default_sort_dir = "desc",
