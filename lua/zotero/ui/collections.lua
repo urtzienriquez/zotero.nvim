@@ -15,7 +15,10 @@ local trash_count = 0
 local feeds_data = {}
 -- Foldable top-level sections: My Library starts open (showing its
 -- collections), Feeds starts folded.
-local section_open = { library = true, feeds = false }
+local section_open = { library = true, feeds = false, tags = false }
+-- Tags section: library-wide tag counts and Zotero's colored tags.
+local tag_counts = {}
+local colored_tags = {}
 local collection_keys_by_id = {}
 local _render_version = nil
 -- Bumped by M.render()/M.refresh_counts(); lets a superseded in-flight
@@ -30,7 +33,9 @@ local _display_lines_cache_key = nil
 
 local function get_display_lines()
   local marked_count = items.get_marked_count()
-  local cache_key = table.concat({ _structure_version, total_item_count, trash_count, marked_count }, "|")
+  local tag_filter = items.get_tag_filter()
+  local cache_key = table.concat({ _structure_version, total_item_count, trash_count, marked_count,
+    table.concat(tag_filter, "\31") }, "|")
   -- feeds_data is only replaced in load_data(), which bumps _structure_version.
   if _display_lines_cache and _display_lines_cache_key == cache_key then
     return _display_lines_cache
@@ -111,6 +116,41 @@ local function get_display_lines()
     table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
   end
 
+  -- Tags: colored tags first ("1 ● to-read"), then the rest. <CR> on a tag
+  -- adds/removes it from the items tag filter; active ones get a ✓.
+  do
+    local tag_filter_mod = require("zotero.ui.tag_filter")
+    local rows = tag_filter_mod.ordered(tag_counts, tag_filter, colored_tags)
+    table.insert(lines, {
+      line = fold_arrow(section_open.tags) .. "Tags (" .. tostring(#rows) .. ")",
+      collectionID = nil,
+      has_children = false,
+      depth = 0,
+      is_tags_header = true,
+      section = "tags",
+    })
+    local any_colored = #colored_tags > 0
+    for _, row in ipairs(section_open.tags and rows or {}) do
+      local active = vim.tbl_contains(tag_filter, row.name)
+      local head = "  " .. (active and "✓ " or "  ")
+      local prefix = tag_filter_mod.prefix(row.index, any_colored)
+      table.insert(lines, {
+        line = head .. prefix .. row.name .. " (" .. tostring(row.count) .. ")",
+        collectionID = nil,
+        has_children = false,
+        depth = 1,
+        is_tag = true,
+        tag_name = row.name,
+        tag_index = row.index,
+        tag_active = active,
+        -- byte columns for apply_highlights()
+        dot_col = row.index and (#head + #(tostring(row.index) .. " ")) or nil,
+        name_col = #head + #prefix,
+      })
+    end
+    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+  end
+
   table.insert(lines, {
     line = "  Marked Items (" .. tostring(marked_count) .. ")",
     collectionID = nil,
@@ -140,12 +180,16 @@ local function load_data()
   local t_stats = db.get_stats()
   local t_trash_count = db.get_trash_count()
   local t_feeds = db.get_feeds()
+  local t_tags = db.get_tag_counts(nil, nil)
+  local t_colored = db.get_colored_tags()
 
   collections_data = async_mod.await(t_collections)
   local stats = async_mod.await(t_stats)
   total_item_count = stats.items
   trash_count = async_mod.await(t_trash_count)
   feeds_data = async_mod.await(t_feeds) or {}
+  tag_counts = async_mod.await(t_tags) or {}
+  colored_tags = async_mod.await(t_colored) or {}
 
   collection_keys_by_id = {}
   for _, col in ipairs(collections_data) do
@@ -264,6 +308,24 @@ function M.apply_highlights(buf)
       local arrow_pos = line:find("[▶▼]")
       if arrow_pos then
         vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionArrow", i - 1, arrow_pos - 1, arrow_pos)
+      end
+    end
+  end
+
+  -- Tags section: coloured dots and the ✓ of tags in the active filter.
+  require("zotero.ui.highlights").set_tag_colors(colored_tags)
+  for i, dl in ipairs(get_display_lines()) do
+    if dl.is_tag and lines[i] == dl.line then
+      if dl.tag_active then
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemMarker", i - 1, 2, 2 + #"✓")
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemTitle", i - 1, dl.name_col, dl.name_col + #dl.tag_name)
+      end
+      if dl.dot_col then
+        vim.api.nvim_buf_set_extmark(buf, ns, i - 1, dl.dot_col, {
+          end_col = dl.dot_col + #"●",
+          hl_group = "ZoteroTagColor" .. dl.tag_index,
+          priority = 4200, -- above nvim_buf_add_highlight's 4096
+        })
       end
     end
   end
@@ -438,6 +500,19 @@ local function on_enter()
     return
   end
 
+  if entry.is_tags_header then
+    M.set_section_open("tags", not section_open.tags)
+    return
+  end
+
+  -- A tag: add it to / remove it from the items tag filter. Focus stays here
+  -- so several tags can be combined, like Zotero's tag selector.
+  if entry.is_tag then
+    local filter = items.get_tag_filter()
+    items.set_tag_filter(require("zotero.ui.tag_filter").toggle(filter, entry.tag_name))
+    return
+  end
+
   if entry.is_feed then
     selected_collection_id = nil
     items.load_feed(entry.feed_library_id, entry.feed_name)
@@ -491,7 +566,7 @@ local function jump_section(direction)
   while target >= 1 and target <= #display_lines do
     local line = display_lines[target]
     if not line.is_separator and line.line ~= "" then
-      if line.is_all_items or line.is_feeds_header or line.is_marked_items or line.is_trash then
+      if line.is_all_items or line.is_feeds_header or line.is_tags_header or line.is_marked_items or line.is_trash then
         cursor_line = target
         local win = layout.get_collections_win()
         if win then
@@ -597,6 +672,10 @@ function M.set_keymaps()
       delete_feed(entry)
       return
     end
+    if entry and entry.is_tag then
+      require("zotero.ui.tag_actions").delete_tag(entry.tag_name)
+      return
+    end
     if not entry or not entry.collectionID then
       return
     end
@@ -618,6 +697,38 @@ function M.set_keymaps()
       end
     end)
   end, "trash collection")
+
+  -- dd on a visual selection in the Tags section: delete all selected tags.
+  map("x", "collections_delete", function()
+    local first, last = vim.fn.line("v"), vim.fn.line(".")
+    if first > last then
+      first, last = last, first
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+    local names = {}
+    for line = first, last do
+      local entry = M.get_collection_at_line(line)
+      if entry and entry.is_tag then
+        names[#names + 1] = entry.tag_name
+      end
+    end
+    if #names == 0 then
+      async_mod.notify("zotero: select tags in the Tags section to delete them", vim.log.levels.INFO)
+      return
+    end
+    require("zotero.ui.tag_actions").delete_tags(names)
+  end, "delete selected tags")
+
+  -- cc on a tag: assign/remove its colour and number key (Zotero's
+  -- "Assign Colour…").
+  map("n", "collections_tag_colour", function()
+    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    if entry and entry.is_tag then
+      require("zotero.ui.tag_actions").assign_colour(entry.tag_name)
+    else
+      async_mod.notify("zotero: put the cursor on a tag in the Tags section", vim.log.levels.INFO)
+    end
+  end, "assign tag colour")
 
   map("n", "collections_refresh", function()
     local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])

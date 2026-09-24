@@ -26,6 +26,13 @@ local type_filter = {
   mode = "exclude",
   types = vim.deepcopy(cfg_mod.get().hidden_item_types or {}),
 }
+-- Tag filter: names of tags every listed item must have (Zotero's
+-- tag-selector logic). Survives view changes like type_filter.
+local tag_filter = {}
+-- Zotero's colored tags ({ name, color } in key order 1-9), refreshed with
+-- every list load; drives the coloured dots and t1-t9.
+local colored_tags = {}
+local TAG_DOT = "●"
 local last_items_width = -1
 local _resize_autocmd_set = false
 local _render_version = nil
@@ -101,10 +108,20 @@ local function get_item_at_visible_line(line)
   return items_data[idx]
 end
 
+-- Title prefixed with one ● per colored tag the item has (coloured by
+-- highlight_tag_dots()), like the dots in Zotero's item list.
+local function title_with_dots(item)
+  local title = sql_str(item.title, "(no title)")
+  if item._tag_dots then
+    return string.rep(TAG_DOT, #item._tag_dots) .. " " .. title
+  end
+  return title
+end
+
 local COLUMN_DEFS = {
   ["#"] = { header = "  #", width = 4, align = "right", extract = function(item, idx) return (marked_items[item.itemID] and "*" or " ") .. tostring(idx) end },
   key = { header = "Key", width = 12, extract = function(item, idx, w) return types.truncate(sql_str(item._is_collection and item._is_collection ~= 0 and "[Coll]" or item.citationKey), w or 12) end },
-  title = { header = "Title", width = 60, extract = function(item, idx, w) return types.truncate(sql_str(item.title, "(no title)"), w or 60) end },
+  title = { header = "Title", width = 60, extract = function(item, idx, w) return types.truncate(title_with_dots(item), w or 60) end },
   authors = { header = "Authors", width = 23, extract = function(item, idx, w) return types.truncate(sql_str(item._authors), w or 23) end },
   year = { header = "Year", width = 4, extract = function(item) return (item._is_collection and item._is_collection ~= 0) and "" or ((item.year and item.year ~= vim.NIL) and tostring(item.year) or (type(item.date_str) == "string" and types.extract_year(item.date_str) or "")) end },
   journal = { header = "Journal", width = 30, extract = function(item, idx, w) return types.truncate(sql_str(item.publicationTitle), w or 30) end },
@@ -160,7 +177,7 @@ local function format_items_compact(items)
       year = types.extract_year(item.date_str)
     end
     year = year or ""
-    local title = sql_str(item.title, "(no title)")
+    local title = title_with_dots(item)
 
     local line
     if author ~= "" and year ~= "" then
@@ -407,6 +424,22 @@ local function load_authors_for_items(items)
     item._authors = types.format_creators(creators)
     item._authors_compact = types.format_creators_compact(creators)
   end
+
+  -- Colored-tag dots (not in feeds, where ● already means "unread").
+  colored_tags = async_mod.await(db.get_colored_tags()) or {}
+  if #colored_tags > 0 and not current_feed_library_id then
+    local names = vim.tbl_map(function(t) return t.name end, colored_tags)
+    local has = async_mod.await(db.get_items_tags(item_ids, names)) or {}
+    for _, item in ipairs(items) do
+      local dots = {}
+      for i, name in ipairs(names) do
+        if has[item.itemID] and has[item.itemID][name] then
+          dots[#dots + 1] = i
+        end
+      end
+      item._tag_dots = #dots > 0 and dots or nil
+    end
+  end
   return items
 end
 
@@ -489,6 +522,9 @@ end
 
 local function type_filter_opts()
   local opts = { library_id = current_feed_library_id }
+  if #tag_filter > 0 then
+    opts.tags = tag_filter
+  end
   if #type_filter.types > 0 then
     if type_filter.mode == "include" then
       opts.include_types = type_filter.types
@@ -508,6 +544,25 @@ function M.set_type_filter(mode, types_list)
   type_filter = { mode = mode or "exclude", types = types_list or {} }
   cursor_line = min_cursor_line()
   M.fetch_and_render()
+end
+
+function M.get_tag_filter()
+  return vim.deepcopy(tag_filter)
+end
+
+-- names: tags every listed item must have ({} = no tag filter).
+function M.set_tag_filter(names)
+  tag_filter = names or {}
+  cursor_line = min_cursor_line()
+  M.fetch_and_render()
+  -- The collections pane marks the active tags in its Tags section.
+  pcall(function()
+    require("zotero.ui.collections").refresh_display()
+  end)
+end
+
+function M.get_colored_tags()
+  return vim.deepcopy(colored_tags)
 end
 
 -- The view the type checklist counts types in: a collection, a feed, or the
@@ -541,6 +596,12 @@ end
 function M.pick_type_filter()
   async_mod.run("zotero:ui.items.pick_type_filter", function()
     require("zotero.ui.type_filter").open()
+  end)
+end
+
+function M.pick_tag_filter()
+  async_mod.run("zotero:ui.items.pick_tag_filter", function()
+    require("zotero.ui.tag_filter").open()
   end)
 end
 
@@ -639,13 +700,43 @@ function M.restore_render()
   return not db.is_stale_since(_render_version)
 end
 
+-- Colours each item's colored-tag dots (see title_with_dots) with the tag's
+-- ZoteroTagColor<N> group. The title under them is highlighted with
+-- nvim_buf_add_highlight, whose priority is 4096, so the dots must be higher.
+local TAG_DOT_PRIORITY = 4200
+local function highlight_tag_dots(buf)
+  if #colored_tags == 0 then
+    return
+  end
+  require("zotero.ui.highlights").set_tag_colors(colored_tags)
+  local ns = vim.api.nvim_create_namespace("zotero-items-hl")
+  for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+    local item = get_item_at_visible_line(i)
+    if item and item._tag_dots then
+      local start = line:find(string.rep(TAG_DOT, #item._tag_dots) .. " ", 1, true)
+      if start then
+        for k, index in ipairs(item._tag_dots) do
+          local col = start - 1 + (k - 1) * #TAG_DOT
+          vim.api.nvim_buf_set_extmark(buf, ns, i - 1, col, {
+            end_col = col + #TAG_DOT,
+            hl_group = "ZoteroTagColor" .. index,
+            priority = TAG_DOT_PRIORITY,
+          })
+        end
+      end
+    end
+  end
+end
+
 function M.apply_highlights(buf)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
   end
 
   if is_compact_mode() then
-    return apply_highlights_compact(buf)
+    apply_highlights_compact(buf)
+    highlight_tag_dots(buf)
+    return
   end
 
   local ns = vim.api.nvim_create_namespace("zotero-items-hl")
@@ -689,6 +780,8 @@ function M.apply_highlights(buf)
       end
     end
   end
+
+  highlight_tag_dots(buf)
 end
 
 function M.update_status()
@@ -703,6 +796,9 @@ function M.update_status()
   if #type_filter.types > 0 then
     info = info .. (type_filter.mode == "include" and "  types: only " or "  types: hiding ")
       .. table.concat(type_filter.types, ", ")
+  end
+  if #tag_filter > 0 then
+    info = info .. "  tags: " .. table.concat(tag_filter, " + ")
   end
   if search_term ~= "" then
     info = info .. "  search: " .. search_term
@@ -1123,6 +1219,93 @@ local function delete_items_in_range(start_line, end_line)
   end)
 end
 
+-- Items under the cursor, or in the visual selection (which it ends).
+local function selected_items()
+  local start_line, end_line = get_visual_lines()
+  if not start_line then
+    start_line = vim.api.nvim_win_get_cursor(0)[1]
+    end_line = start_line
+  end
+  local list, seen = {}, {}
+  for line = start_line, end_line do
+    local item = get_item_at_visible_line(line)
+    if item and item.itemID and not seen[item.itemID] and not (item._is_collection and item._is_collection ~= 0) then
+      seen[item.itemID] = true
+      list[#list + 1] = item
+    end
+  end
+  return list
+end
+
+-- Runs a user-triggered tag action as a task and reports any error: nightly's
+-- vim.async doesn't surface errors from tasks nobody awaits.
+local function run_tag_action(name, fn)
+  async_mod.run(name, function()
+    local ok, err = pcall(fn)
+    if not ok then
+      async_mod.notify("zotero: tag action failed: " .. tostring(err), vim.log.levels.ERROR)
+    end
+  end)
+end
+
+-- Toggles `tag` on `list` like Zotero's colored-tag keys (removed from all
+-- if every item has it, otherwise added to all), then re-renders. Calls
+-- `on_done(ok, added)` on the main thread when finished, if given.
+function M.toggle_tag_on(list, tag, on_done)
+  run_tag_action("zotero:ui.items.toggle_tag", function()
+    local key_map = async_mod.await(db.get_item_keys(vim.tbl_map(function(i) return i.itemID end, list)))
+    local keys = vim.tbl_values(key_map)
+    local ok, added = false, false
+    if #keys == 0 then
+      async_mod.notify("zotero: could not resolve item keys", vim.log.levels.ERROR)
+    else
+      ok, added = async_mod.await(require("zotero.api").toggle_tag(keys, tag))
+    end
+    async_mod.to_main()
+    if ok then
+      M.fetch_and_render(true)
+    end
+    if on_done then
+      on_done(ok == true, added == true)
+    end
+  end)
+end
+
+-- t1..t9: toggle Zotero's colored tag number n.
+local function toggle_colored_tag(n)
+  if M.readonly_guard() then
+    return
+  end
+  local list = selected_items()
+  if #list == 0 then
+    return
+  end
+  run_tag_action("zotero:ui.items.toggle_colored_tag", function()
+    local tag = (async_mod.await(db.get_colored_tags()) or {})[n]
+    if not tag then
+      async_mod.notify(("zotero: no colored tag %d -- assign one in Zotero: right-click a tag in the tag selector"
+        .. " → Assign Colour…"):format(n), vim.log.levels.INFO)
+      return
+    end
+    M.toggle_tag_on(list, tag.name)
+  end)
+end
+
+-- tt: a checklist of all tags showing which the item(s) have; toggle as
+-- many as you like in one go (see ui/tag_assign.lua).
+local function pick_tag_to_toggle()
+  if M.readonly_guard() then
+    return
+  end
+  local list = selected_items()
+  if #list == 0 then
+    return
+  end
+  run_tag_action("zotero:ui.items.tag_assign", function()
+    require("zotero.ui.tag_assign").open(list)
+  end)
+end
+
 function M.set_keymaps()
   local buf = layout.get_items_buf()
   if not buf then
@@ -1471,6 +1654,17 @@ function M.set_keymaps()
   map("n", "items_show_only_marked", toggle_show_marked, "show only marked items")
 
   map("n", "items_filter_type", M.pick_type_filter, "filter by item type")
+  map("n", "items_filter_tag", M.pick_tag_filter, "filter by tag")
+  map({ "n", "x" }, "items_toggle_tag", pick_tag_to_toggle, "toggle a tag on item(s)")
+  -- t1..t9 (with the default prefix): toggle Zotero's colored tag N.
+  local tag_prefix = km.items_toggle_colored_tag
+  if tag_prefix then
+    for n = 1, 9 do
+      vim.keymap.set({ "n", "x" }, tag_prefix .. n, function()
+        toggle_colored_tag(n)
+      end, { buffer = buf, silent = true, desc = "toggle colored tag " .. n })
+    end
+  end
 
   -- g: navigation (collections.lua maps the same keys in its pane)
   map("n", "goto_library", function()

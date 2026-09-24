@@ -1004,6 +1004,110 @@ async function startup({ id, version, resourceURI, rootURI }) {
     },
   };
 
+  // Toggles one tag on several items exactly like pressing a colored-tag key
+  // (1-9) in Zotero: if every item already has the tag it is removed from
+  // all of them, otherwise it is added to all of them.
+  Zotero.Server.Endpoints["/connector/toggleTag"] = function () {};
+  Zotero.Server.Endpoints["/connector/toggleTag"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var tag = typeof data.tag === "string" ? data.tag.trim() : "";
+        var itemKeys = data.itemKeys;
+        if (!tag || !itemKeys || !itemKeys.length) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_TAG_OR_KEYS" })];
+        }
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var items = [];
+        for (var i = 0; i < itemKeys.length; i++) {
+          var item = Zotero.Items.getByLibraryAndKey(libraryID, itemKeys[i]);
+          if (item) {
+            items.push(item);
+          }
+        }
+        if (!items.length) {
+          return [404, "application/json", JSON.stringify({ error: "ITEM_NOT_FOUND" })];
+        }
+        var hadAll = items.every(function (it) { return it.hasTag(tag); });
+        await Zotero.Tags.toggleItemsListTags(items, tag);
+        return [200, "application/json", JSON.stringify({ success: true, added: !hadAll, count: items.length })];
+      } catch (e) {
+        Zotero.logError("toggleTag error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  // Sets or removes a tag's colour, like "Assign Colour…" in Zotero's tag
+  // selector. color: "#RRGGBB" or null to remove; position: 1-9 (the number
+  // key), optional. Zotero allows at most 9 colored tags (enforced by its
+  // dialog, not by setColor, so it is checked here).
+  Zotero.Server.Endpoints["/connector/setTagColor"] = function () {};
+  Zotero.Server.Endpoints["/connector/setTagColor"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var tag = typeof data.tag === "string" ? data.tag.trim() : "";
+        var color = data.color || null;
+        if (!tag) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_TAG" })];
+        }
+        if (color && !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+          return [400, "application/json", JSON.stringify({ error: "INVALID_COLOR" })];
+        }
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var colors = Zotero.Tags.getColors(libraryID);
+        if (color && !colors.has(tag) && colors.size >= Zotero.Tags.MAX_COLORED_TAGS) {
+          return [409, "application/json", JSON.stringify({
+            error: "Zotero allows at most " + Zotero.Tags.MAX_COLORED_TAGS + " colored tags",
+          })];
+        }
+        var position = typeof data.position === "number" ? data.position - 1 : undefined;
+        await Zotero.Tags.setColor(libraryID, tag, color ? color.toUpperCase() : false, position);
+        return [200, "application/json", JSON.stringify({ success: true })];
+      } catch (e) {
+        Zotero.logError("setTagColor error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  // Deletes a tag from every item in the user library, like "Delete Tag…" in
+  // Zotero's tag selector (including a colour left without items).
+  Zotero.Server.Endpoints["/connector/deleteTag"] = function () {};
+  Zotero.Server.Endpoints["/connector/deleteTag"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var tag = typeof requestData.data.tag === "string" ? requestData.data.tag.trim() : "";
+        if (!tag) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_TAG" })];
+        }
+        var libraryID = Zotero.Libraries.userLibraryID;
+        var tagID = Zotero.Tags.getID(tag);
+        var colored = Zotero.Tags.getColors(libraryID).has(tag);
+        if (!tagID && !colored) {
+          return [404, "application/json", JSON.stringify({ error: "TAG_NOT_FOUND" })];
+        }
+        if (tagID) {
+          await Zotero.Tags.removeFromLibrary(libraryID, tagID);
+        }
+        if (colored) {
+          await Zotero.Tags.setColor(libraryID, tag, false);
+        }
+        return [200, "application/json", JSON.stringify({ success: true })];
+      } catch (e) {
+        Zotero.logError("deleteTag error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
     Zotero.logError("zotero-nvim-connector: startup complete");
   } catch (e) {
     Zotero.logError("zotero-nvim-connector: startup FAILED: " + (e.message || String(e)));
@@ -1032,4 +1136,7 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/deleteFeed"];
   delete Zotero.Server.Endpoints["/connector/refreshFeeds"];
   delete Zotero.Server.Endpoints["/connector/importOPML"];
+  delete Zotero.Server.Endpoints["/connector/toggleTag"];
+  delete Zotero.Server.Endpoints["/connector/setTagColor"];
+  delete Zotero.Server.Endpoints["/connector/deleteTag"];
 }

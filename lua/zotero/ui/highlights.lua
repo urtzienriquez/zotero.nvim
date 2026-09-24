@@ -24,4 +24,14 @@ function M.setup()
   hl(0, "ZoteroFeedUnread", { fg = "#88aaff", bold = true })
 end
 
+-- ZoteroTagColor1..9: one highlight group per Zotero colored tag, using the
+-- colour assigned in Zotero (tag selector -> Assign Colour). `colored` is
+-- db.get_colored_tags() output; the index is the tag's number key.
+function M.set_tag_colors(colored)
+  for i, tag in ipairs(colored or {}) do
+    local color = type(tag.color) == "string" and tag.color:match("^#%x%x%x%x%x%x$") and tag.color or nil
+    vim.api.nvim_set_hl(0, "ZoteroTagColor" .. i, color and { fg = color, bold = true } or { link = "ZoteroItemMarker" })
+  end
+end
+
 return M

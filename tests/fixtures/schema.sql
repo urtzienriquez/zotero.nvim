@@ -115,6 +115,16 @@ INSERT INTO itemCreators VALUES
   (2, 2, 1, 0), (2, 3, 1, 1),
   (3, 4, 1, 0), (3, 5, 1, 1), (3, 6, 1, 2), (3, 7, 1, 3), (3, 8, 1, 4);
 
+-- Zotero's colored tags ("Assign Colour" in the tag selector) live in
+-- syncedSettings as JSON; list position = the 1-9 key. ecology = 1, genetics = 2.
+CREATE TABLE syncedSettings (
+  setting TEXT NOT NULL, libraryID INT NOT NULL, value NOT NULL,
+  version INT NOT NULL DEFAULT 0, synced INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (setting, libraryID)
+);
+INSERT INTO syncedSettings (setting, libraryID, value) VALUES
+  ('tagColors', 1, '[{"name":"ecology","color":"#FF6666"},{"name":"genetics","color":"#5FB236"}]');
+
 CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
 INSERT INTO tags VALUES (1, 'ecology'), (2, 'genetics'), (3, 'draft');
 
