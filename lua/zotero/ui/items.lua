@@ -921,17 +921,10 @@ local function clear_search()
   M.fetch_and_render()
 end
 
-local function open_attachment()
-  local win = layout.get_items_win()
-  if not win then
-    return
-  end
-  local cursor = vim.api.nvim_win_get_cursor(win)
-  local item = get_item_at_visible_line(cursor[1])
-  if not item then
-    return
-  end
-  async_mod.run("zotero:ui.items.open_attachment", function()
+-- Calls `fn(attachment)` on the main thread with the item's attachment whose
+-- file exists on disk, asking which one when there are several (`prompt`).
+local function with_attachment_on_disk(item, prompt, fn)
+  async_mod.run("zotero:ui.items.pick_attachment", function()
     local attachments = async_mod.await(db.get_item_attachments(item.itemID))
     if #attachments == 0 then
       async_mod.notify("zotero: no attachments for this item", vim.log.levels.INFO)
@@ -944,9 +937,9 @@ local function open_attachment()
       async_mod.notify("zotero: no attachment files found on disk for this item", vim.log.levels.INFO)
       return
     end
+    async_mod.to_main()
     if #existing == 1 then
-      async_mod.to_main()
-      M.open_file(existing[1])
+      fn(existing[1])
       return
     end
 
@@ -954,12 +947,51 @@ local function open_attachment()
     for _, a in ipairs(existing) do
       table.insert(choices, a.title or a.path or "attachment")
     end
-    async_mod.to_main()
-    vim.ui.select(choices, { prompt = "Open attachment:" }, function(choice, idx)
+    vim.ui.select(choices, { prompt = prompt }, function(choice, idx)
       if choice and idx then
-        M.open_file(existing[idx])
+        fn(existing[idx])
       end
     end)
+  end)
+end
+
+local function open_attachment()
+  local item = item_under_cursor()
+  if item then
+    with_attachment_on_disk(item, "Open attachment:", M.open_file)
+  end
+end
+
+-- Puts `text` in register `reg`: the one the mapping was called with
+-- ("+yk -> the clipboard), or the default register, like a normal yank.
+local function yank(reg, text, what)
+  vim.fn.setreg(reg, text)
+  async_mod.notify(("zotero: yanked %s: %s"):format(what, text), vim.log.levels.INFO)
+end
+
+local function yank_citation_key()
+  local item = item_under_cursor()
+  if not item then
+    return
+  end
+  local key = sql_str(item.citationKey)
+  if key == "" then
+    async_mod.notify("zotero: this item has no citation key", vim.log.levels.INFO)
+    return
+  end
+  yank(vim.v.register, key, "citation key")
+end
+
+local function yank_file_path()
+  local item = item_under_cursor()
+  if not item then
+    return
+  end
+  -- Captured now: vim.v.register is only valid while the mapping runs, and
+  -- picking among several attachments finishes later.
+  local reg = vim.v.register
+  with_attachment_on_disk(item, "Yank path of:", function(attachment)
+    yank(reg, db.resolve_attachment_path(attachment), "file path")
   end)
 end
 
@@ -1145,6 +1177,8 @@ function M.set_keymaps()
 
   map("n", "items_show_detail", on_enter, "show detail")
   map("n", "items_open_attachment", open_attachment, "open attachment")
+  map("n", "items_yank_citation_key", yank_citation_key, "yank citation key")
+  map("n", "items_yank_file_path", yank_file_path, "yank attachment file path")
 
   map("n", "items_open_url", open_link, "open URL/DOI in browser")
 
@@ -1455,6 +1489,7 @@ function M.set_keymaps()
     items_help_sort = "zotero-items-sort-maps",
     items_help_filter = "zotero-items-filter-maps",
     items_help_toggle = "zotero-items-toggle-maps",
+    items_help_yank = "zotero-items-yank-maps",
   }) do
     map("n", name, function()
       vim.cmd.help(tag)

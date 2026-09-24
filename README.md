@@ -148,6 +148,8 @@ require("zotero").setup({
     items_move_to_collection = "cm",
     items_toggle_mark        = "mm",
     items_toggle_read        = "rr",
+    items_yank_citation_key  = "yk",   -- y: yank
+    items_yank_file_path     = "yp",
     items_sort_title         = "st",   -- s: sort
     items_sort_year          = "sy",
     items_sort_date_added    = "sd",
@@ -163,6 +165,7 @@ require("zotero").setup({
     items_help_sort          = "s?",
     items_help_filter        = "f?",
     items_help_toggle        = "t?",
+    items_help_yank          = "y?",
     items_show_only_marked   = "gm",   -- g: navigation (both panes)
     goto_library             = "gl",
     goto_feeds               = "gf",
@@ -200,8 +203,8 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<leader>zf` | Fuzzy search all items (fzf/telescope) |
 
 Inside the browser, keys come in short two-key families named after what they
-do, in the spirit of vim-fugitive: `o` open, `e` edit, `a` add, `s` sort,
-`f` filter, `t` toggle view. `<family>?` (e.g. `s?`) opens `:help` at that
+do, in the spirit of vim-fugitive: `o` open, `e` edit, `a` add, `y` yank,
+`s` sort, `f` filter, `t` toggle view. `<family>?` (e.g. `s?`) opens `:help` at that
 family, and `g?` at the whole list. The `g` prefix is only used for
 navigation. Every key can be remapped; see
 [Keeping the old keymaps](#keeping-the-old-keymaps).
@@ -233,6 +236,7 @@ My Library and Feeds are foldable sections: My Library starts open with its coll
 | `R`         | Refresh (in a feed: fetch new items first)              |
 | `<Tab>`     | Focus collections pane                                  |
 | `oo` / `ob` | Open attached file / open URL or DOI in the browser     |
+| `yk` / `yp` | Yank citation key / full path of the attached file (use `"+yk` for the clipboard) |
 | `ee` / `ef` | Edit metadata / fix attachment or update from a DOI     |
 | `aa`        | Attach a PDF to the item                                |
 | `ai`        | Import a PDF as a new item                              |
@@ -247,7 +251,7 @@ My Library and Feeds are foldable sections: My Library starts open with its coll
 | `tv`        | Toggle column preset (configured/compact/normal/full)   |
 | `tc` / `ts` | Toggle collections pane / statuscolumn                  |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked only / Trash  |
-| `o?` `e?` `a?` `s?` `f?` `t?` | `:help` for that family               |
+| `o?` `e?` `a?` `y?` `s?` `f?` `t?` | `:help` for that family         |
 | `g?`        | Open `:help` at the items-pane keymaps                  |
 
 `dd`, `cm`, `mm` and `rr` also work on a visual selection.

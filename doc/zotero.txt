@@ -111,6 +111,8 @@ CONFIGURATION                                            *zotero-config*
         items_move_to_collection = "cm",
         items_toggle_mark        = "mm",
         items_toggle_read        = "rr",
+        items_yank_citation_key  = "yk",   -- y: yank
+        items_yank_file_path     = "yp",
         items_sort_title         = "st",   -- s: sort
         items_sort_year          = "sy",
         items_sort_date_added    = "sd",
@@ -126,6 +128,7 @@ CONFIGURATION                                            *zotero-config*
         items_help_sort          = "s?",
         items_help_filter        = "f?",
         items_help_toggle        = "t?",
+        items_help_yank          = "y?",
         items_show_only_marked   = "gm",   -- g: navigation
         goto_library             = "gl",
         goto_feeds               = "gf",
@@ -289,7 +292,7 @@ Global~                                                 *zotero-global-maps*
   <leader>zf      Fuzzy search all items
 
 Keys come in two-key families named after what they do (o = open,
-e = edit, a = add, s = sort, f = filter, t = toggle view), and
+e = edit, a = add, y = yank, s = sort, f = filter, t = toggle view), and
 `<family>?` opens help at that family. The g prefix is reserved for
 navigation, never for actions.
 
@@ -364,6 +367,14 @@ Toggle view~                                      *zotero-items-toggle-maps*
   tc              Collections pane
   ts              Statuscolumn (signs, line numbers)
   t?              Open this help
+
+Yank~                                               *zotero-items-yank-maps*
+  yk              Yank the item's citation key
+  yp              Yank the full path of the item's attached file (asks
+                  which one when there are several)
+  y?              Open this help
+  Like a normal yank, these use the register you give ("+yk copies to the
+  system clipboard) or the default register.
 
 Old keymaps~                                         *zotero-legacy-keymaps*
   Before this layout every action was `<leader>z` + a letter. To keep
