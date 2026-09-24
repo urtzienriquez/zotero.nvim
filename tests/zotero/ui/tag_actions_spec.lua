@@ -161,13 +161,27 @@ describe("cc / dd keys", function()
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
   end
 
+  -- The buffer always holds every tag (the pane uses real folds, and it is
+  -- reused between tests), so wait until the line is actually visible: this
+  -- test's render has landed and opened the Tags fold.
+  local function wait_visible(pattern)
+    local ok = vim.wait(3000, function()
+      local win = layout.get_collections_win()
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
+        if l:match(pattern) then
+          return vim.api.nvim_win_call(win, function() return vim.fn.foldclosed(i) end) == -1
+        end
+      end
+      return false
+    end, 20)
+    assert(ok, pattern .. " never became visible")
+  end
+
   it("in the collections Tags section, act on the tag under the cursor", function()
     collections.set_section_open("tags", true)
     collections.render()
     local buf = layout.get_collections_buf()
-    vim.wait(3000, function()
-      return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"):match("ecology") ~= nil
-    end, 20)
+    wait_visible("ecology")
     layout.focus_collections()
     for i, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
       if l:match("ecology") then vim.api.nvim_win_set_cursor(0, { i, 0 }) end
@@ -182,9 +196,7 @@ describe("cc / dd keys", function()
     collections.set_section_open("tags", true)
     collections.render()
     local buf = layout.get_collections_buf()
-    vim.wait(3000, function()
-      return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"):match("genetics") ~= nil
-    end, 20)
+    wait_visible("genetics")
     layout.focus_collections()
     local header
     for i, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do

@@ -185,7 +185,6 @@ require("zotero").setup({
     collections_next_section    = "]]",
     collections_prev_section    = "[[",
     collections_select          = "<CR>",
-    collections_toggle_fold     = "za",
     collections_focus_items     = "<Tab>",
     collections_focus_items_esc = "<Esc>",
     collections_new             = "aa",
@@ -220,14 +219,14 @@ navigation. Every key can be remapped; see
 
 ### Collections Pane
 
-My Library, Feeds and Tags are foldable sections: My Library starts open with its collections underneath, Feeds and Tags start folded. `za` opens or closes the section (or collection) under the cursor. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (the cursor stays in the pane, so you can combine tags).
+My Library, Feeds, Tags and collections with sub-collections are real Vim folds, so `zo`/`zc`/`za`/`zR`/`zM` (and the rest of Vim's fold commands) work as usual. My Library and top-level collections start open, Feeds and Tags start folded, and the pane keeps your folds when it refreshes. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (the cursor stays in the pane, so you can combine tags).
 
 | Key               | Action                                                     |
 | ----------------- | ---------------------------------------------------------- |
 | `j` / `k`         | Navigate up/down                                           |
 | `]]` / `[[`       | Next / previous section                                    |
 | `<CR>`            | Select collection / expand-collapse / open feed, Trash or Marked (on Feeds: open/close it) |
-| `za`              | Open/close My Library, Feeds, or the collection under the cursor (without loading items) |
+| `zo` `zc` `za` `zR` `zM` … | Vim's fold commands: open/close sections and collections |
 | `<Tab>` / `<Esc>` | Focus items pane                                           |
 | `aa`              | Add a collection (on Feeds or a feed: add a feed)          |
 | `dd`              | Trash the collection (on a feed: unsubscribe; on a tag: delete it from all items; on a visual selection of tags: delete them all) |

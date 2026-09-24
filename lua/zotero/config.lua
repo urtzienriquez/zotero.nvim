@@ -79,7 +79,6 @@ M.defaults = {
     collections_next_section = "]]",
     collections_prev_section = "[[",
     collections_select = "<CR>",
-    collections_toggle_fold = "za",
     collections_focus_items = "<Tab>",
     collections_focus_items_esc = "<Esc>",
     collections_new = "aa",

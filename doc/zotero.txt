@@ -143,7 +143,6 @@ CONFIGURATION                                            *zotero-config*
         collections_next_section    = "]]",
         collections_prev_section    = "[[",
         collections_select          = "<CR>",
-        collections_toggle_fold     = "za",
         collections_focus_items     = "<Tab>",
         collections_focus_items_esc = "<Esc>",
         collections_new             = "aa",
@@ -357,9 +356,12 @@ Collections Pane~                                  *zotero-collections-maps*
   <CR>            Select collection, feed, Marked or Trash (loads items);
                   on a collection with children, also expand/collapse;
                   on the Feeds header, open/close Feeds
-  za              Open/close My Library, Feeds, Tags, or the collection
-                  under the cursor, without loading any items. My Library
-                  starts open, Feeds and Tags start folded.
+  zo zc za zR zM  Vim's own fold commands: My Library, Feeds, Tags and
+                  collections with sub-collections are real folds (so zO,
+                  zC, zA, zj/zk, [z/]z, zv... work too). My Library and
+                  top-level collections start open, Feeds, Tags and deeper
+                  collections start closed; the pane keeps your folds
+                  when it refreshes.
   <CR> on a tag   Add it to / remove it from the tag filter (focus stays
                   here, so several tags can be combined; see |zotero-tags|)
   cc on a tag     Assign/remove its colour and number key (1-9)
