@@ -2,7 +2,8 @@
 
 Neovim plugin for browsing your Zotero library. Reads the SQLite database directly — no exports required.
 
-> **Which branch should I use?**
+> [!IMPORTANT]
+> **Pick the branch that matches your Neovim version:**
 >
 > | Your Neovim | Branch |
 > | --- | --- |
