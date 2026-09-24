@@ -146,6 +146,90 @@ describe("collections (real buffers, fixture db)", function()
     require("zotero.ui.items").load_items(nil) -- leave items.lua in library mode for later specs
   end)
 
+  describe("managing feeds", function()
+    local api = require("zotero.api")
+    local orig = {}
+    local calls
+
+    before_each(function()
+      calls = {}
+      for _, name in ipairs({ "add_feed", "delete_feed", "refresh_feeds" }) do
+        orig[name] = api[name]
+        api[name] = function(...)
+          calls[#calls + 1] = { name, ... }
+          return vim.async.run(function() return true end)
+        end
+      end
+      orig.input, orig.confirm = vim.ui.input, vim.fn.confirm
+      vim.ui.input = function(_, cb) cb("https://example.org/new.xml") end
+      vim.fn.confirm = function() return 1 end
+    end)
+
+    after_each(function()
+      for name, fn in pairs(orig) do
+        if name == "input" then vim.ui.input = fn
+        elseif name == "confirm" then vim.fn.confirm = fn
+        else api[name] = fn end
+      end
+    end)
+
+    local function press_on(pattern, keys)
+      layout.focus_collections()
+      local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
+      for i, l in ipairs(lines) do
+        if l:match(pattern) then
+          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
+          break
+        end
+      end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
+      vim.wait(2000, function() return #calls > 0 end, 20)
+    end
+
+    it("shows 'Feeds (0)' even when there are no feeds", function()
+      local h = io.popen(("sqlite3 '%s' 'DELETE FROM feeds'"):format(fixture.db_path))
+      h:close()
+      require("zotero.db").invalidate_cache()
+      render_sync()
+      local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false), "\n")
+      assert.matches("Feeds %(0%)", text)
+      assert.does_not.match("Journal RSS", text)
+    end)
+
+    it("<leader>zN on the Feeds header prompts for a URL and adds a feed", function()
+      render_sync()
+      press_on("^  Feeds", "<leader>zN")
+      assert.same({ "add_feed", "https://example.org/new.xml" }, calls[1])
+    end)
+
+    it("<leader>zN on a collection still creates a collection, not a feed", function()
+      render_sync()
+      local orig_create = api.create_collection
+      api.create_collection = function(...)
+        calls[#calls + 1] = { "create_collection", ... }
+        return vim.async.run(function() return false end)
+      end
+      press_on("Root B", "<leader>zN")
+      api.create_collection = orig_create
+      assert.equals("create_collection", calls[1][1])
+    end)
+
+    it("<leader>zD on a feed unsubscribes from it", function()
+      render_sync()
+      press_on("Journal RSS", "<leader>zD")
+      assert.same({ "delete_feed", 2 }, calls[1])
+    end)
+
+    it("<leader>zr refreshes one feed on a feed line, all feeds on the header", function()
+      render_sync()
+      press_on("Journal RSS", "<leader>zr")
+      assert.same({ "refresh_feeds", 2 }, calls[1])
+      calls = {}
+      press_on("^  Feeds", "<leader>zr")
+      assert.same({ "refresh_feeds" }, calls[1]) -- library_id nil = all feeds
+    end)
+  end)
+
   it("refresh_counts() re-queries and re-renders without error", function()
     render_sync()
     assert.has_no.errors(function()

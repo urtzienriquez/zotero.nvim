@@ -836,9 +836,14 @@ async function startup({ id, version, resourceURI, rootURI }) {
         if (!libraryID || !itemKeys || !itemKeys.length) {
           return [400, "application/json", JSON.stringify({ error: "MISSING_LIBRARY_OR_KEYS" })];
         }
-        if (!Zotero.Feeds.get(libraryID)) {
+        var feed = Zotero.Feeds.get(libraryID);
+        if (!feed) {
           return [404, "application/json", JSON.stringify({ error: "FEED_NOT_FOUND" })];
         }
+        // Feed item data is loaded lazily (Zotero's own UI waits for it
+        // before showing a feed); saving an unloaded FeedItem throws
+        // "'itemData' not loaded for feedItem".
+        await feed.waitForDataLoad("item");
 
         var updated = 0;
         for (var i = 0; i < itemKeys.length; i++) {
@@ -853,6 +858,147 @@ async function startup({ id, version, resourceURI, rootURI }) {
         return [200, "application/json", JSON.stringify({ success: true, updated: updated })];
       } catch (e) {
         Zotero.logError("setFeedItemsRead error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  // Subscribes to a feed the way Zotero's "New Feed > From URL" dialog does
+  // (feedSettings.js + ZoteroPane.newFeedFromURL): parse it with FeedReader
+  // first so only real RSS/Atom URLs get saved, default the name to the
+  // feed's own title, then save and do the first fetch. Refresh/cleanup
+  // settings fall back to the user's Zotero feed preferences in _initSave.
+  Zotero.Server.Endpoints["/connector/addFeed"] = function () {};
+  Zotero.Server.Endpoints["/connector/addFeed"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var data = requestData.data;
+        var url = (data.url || "").trim();
+        if (!url) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_URL" })];
+        }
+        if (!/^https?:\/\//i.test(url)) {
+          return [400, "application/json", JSON.stringify({ error: "URL must start with http:// or https://" })];
+        }
+        if (Zotero.Feeds.existsByURL(url)) {
+          return [409, "application/json", JSON.stringify({ error: "Already subscribed to this feed" })];
+        }
+
+        var props;
+        var reader = new Zotero.FeedReader(url);
+        try {
+          await reader.process();
+          props = reader.feedProperties;
+        } catch (e) {
+          return [422, "application/json", JSON.stringify({ error: "Not a valid RSS/Atom feed: " + (e.message || String(e)) })];
+        } finally {
+          try { reader.terminate("done"); } catch (_) {}
+        }
+
+        var feed = new Zotero.Feed();
+        feed.url = url;
+        feed.name = (data.name && data.name.trim()) || props.title || url;
+        if (props.ttl) {
+          feed.refreshInterval = props.ttl;
+        }
+        await feed.saveTx();
+        await feed.updateFeed();
+
+        return [200, "application/json", JSON.stringify({
+          success: true,
+          libraryID: feed.libraryID,
+          name: feed.name,
+          lastCheckError: feed.lastCheckError || null,
+        })];
+      } catch (e) {
+        Zotero.logError("addFeed error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  Zotero.Server.Endpoints["/connector/deleteFeed"] = function () {};
+  Zotero.Server.Endpoints["/connector/deleteFeed"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var feed = Zotero.Feeds.get(requestData.data.libraryID);
+        if (!feed) {
+          return [404, "application/json", JSON.stringify({ error: "FEED_NOT_FOUND" })];
+        }
+        var name = feed.name;
+        await feed.eraseTx();
+        return [200, "application/json", JSON.stringify({ success: true, name: name })];
+      } catch (e) {
+        Zotero.logError("deleteFeed error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  // Refreshes one feed ({libraryID}) or every feed. Uses updateFeed() per
+  // feed rather than Zotero.Feeds.updateFeeds(), which skips feeds that
+  // aren't due yet -- same as the "Refresh" action in Zotero's feed menu.
+  Zotero.Server.Endpoints["/connector/refreshFeeds"] = function () {};
+  Zotero.Server.Endpoints["/connector/refreshFeeds"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var libraryID = requestData.data && requestData.data.libraryID;
+        var feeds;
+        if (libraryID) {
+          var one = Zotero.Feeds.get(libraryID);
+          if (!one) {
+            return [404, "application/json", JSON.stringify({ error: "FEED_NOT_FOUND" })];
+          }
+          feeds = [one];
+        } else {
+          feeds = Zotero.Feeds.getAll();
+        }
+        var errors = [];
+        for (var i = 0; i < feeds.length; i++) {
+          // Same lazy-load requirement as above; Zotero.Feeds.updateFeeds()
+          // does this too before _updateFeed().
+          await feeds[i].waitForDataLoad("item");
+          await feeds[i].updateFeed();
+          if (feeds[i].lastCheckError) {
+            errors.push({ name: feeds[i].name, error: feeds[i].lastCheckError });
+          }
+        }
+        return [200, "application/json", JSON.stringify({ success: true, refreshed: feeds.length, errors: errors })];
+      } catch (e) {
+        Zotero.logError("refreshFeeds error: " + (e.message || String(e)));
+        return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
+      }
+    },
+  };
+
+  // Imports feeds from OPML text (the caller reads the file). Zotero's own
+  // importFromOPML() skips already-subscribed URLs and refreshes afterwards;
+  // report how many feeds it actually added.
+  Zotero.Server.Endpoints["/connector/importOPML"] = function () {};
+  Zotero.Server.Endpoints["/connector/importOPML"].prototype = {
+    supportedMethods: ["POST"],
+    supportedDataTypes: ["application/json"],
+    init: async function (requestData) {
+      try {
+        var opml = requestData.data.opml;
+        if (!opml) {
+          return [400, "application/json", JSON.stringify({ error: "MISSING_OPML" })];
+        }
+        var before = Zotero.Feeds.getAll().length;
+        var ok = await Zotero.Feeds.importFromOPML(opml);
+        if (!ok) {
+          return [422, "application/json", JSON.stringify({ error: "Could not parse OPML" })];
+        }
+        var added = Zotero.Feeds.getAll().length - before;
+        return [200, "application/json", JSON.stringify({ success: true, added: added })];
+      } catch (e) {
+        Zotero.logError("importOPML error: " + (e.message || String(e)));
         return [500, "application/json", JSON.stringify({ error: e.message || String(e) })];
       }
     },
@@ -882,4 +1028,8 @@ function shutdown() {
   delete Zotero.Server.Endpoints["/connector/importFile"];
   delete Zotero.Server.Endpoints["/connector/mergeItems"];
   delete Zotero.Server.Endpoints["/connector/setFeedItemsRead"];
+  delete Zotero.Server.Endpoints["/connector/addFeed"];
+  delete Zotero.Server.Endpoints["/connector/deleteFeed"];
+  delete Zotero.Server.Endpoints["/connector/refreshFeeds"];
+  delete Zotero.Server.Endpoints["/connector/importOPML"];
 }

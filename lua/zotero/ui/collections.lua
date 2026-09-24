@@ -72,9 +72,10 @@ local function get_display_lines()
 
   table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
 
-  -- Each feed is its own Zotero library, listed read-only (as in Zotero's own
-  -- collection tree, where "Feeds" sits between the libraries and the rest).
-  if #feeds_data > 0 then
+  -- Each feed is its own Zotero library (as in Zotero's own collection tree,
+  -- where "Feeds" sits between the libraries and the rest). The header is
+  -- always shown, even with no feeds, so <leader>zN on it can add the first.
+  do
     local total_unread = 0
     for _, feed in ipairs(feeds_data) do
       total_unread = total_unread + (tonumber(feed.unread) or 0)
@@ -285,6 +286,61 @@ function M.get_collection_at_line(line)
   return display_lines[line]
 end
 
+-- Prompts for a feed URL and subscribes to it through the companion plugin.
+-- The name defaults to the feed's own title. Used by <leader>zN on the Feeds
+-- section and by :ZoteroAddFeed without arguments.
+function M.add_feed(url, name)
+  local function go(u)
+    if not u or vim.trim(u) == "" then
+      return
+    end
+    async_mod.run("zotero:ui.collections.add_feed", function()
+      local res = async_mod.await(require("zotero.api").add_feed(vim.trim(u), name))
+      if res then
+        M.refresh_counts()
+      end
+    end)
+  end
+  if url then
+    go(url)
+  else
+    vim.ui.input({ prompt = "Feed URL (RSS/Atom): " }, go)
+  end
+end
+
+-- Refreshes one feed (library_id) or all feeds (nil) in Zotero, then
+-- re-renders counts, and the item list if it's showing a refreshed feed.
+function M.refresh_feeds(library_id)
+  async_mod.notify("zotero: refreshing " .. (library_id and "feed" or "all feeds") .. "…", vim.log.levels.INFO)
+  async_mod.run("zotero:ui.collections.refresh_feeds", function()
+    async_mod.await(require("zotero.api").refresh_feeds(library_id))
+    async_mod.to_main()
+    M.refresh_counts()
+    local shown = items.get_feed_library_id()
+    if shown and (library_id == nil or shown == library_id) then
+      items.fetch_and_render(true)
+    end
+  end)
+end
+
+local function delete_feed(entry)
+  local choice = vim.fn.confirm("Unsubscribe from feed '" .. entry.feed_name .. "'? Its items will be removed.", "&Yes\n&No", 2)
+  if choice ~= 1 then
+    return
+  end
+  async_mod.run("zotero:ui.collections.delete_feed", function()
+    local ok = async_mod.await(require("zotero.api").delete_feed(entry.feed_library_id))
+    if not ok then
+      return
+    end
+    async_mod.to_main()
+    if items.get_feed_library_id() == entry.feed_library_id then
+      items.load_items(nil)
+    end
+    M.refresh_counts()
+  end)
+end
+
 local function on_enter()
   local win = layout.get_collections_win()
   if not win then
@@ -439,7 +495,11 @@ function M.set_keymaps()
   end, "focus items")
 
   map("n", "collections_new", function()
-    local entry = M.get_collection_at_line(cursor_line)
+    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    if entry and (entry.is_feeds_header or entry.is_feed) then
+      M.add_feed()
+      return
+    end
     local parent_key = nil
     local parent_name = ""
     if entry and entry.collectionID and not entry.is_trash and not entry.is_separator then
@@ -462,7 +522,11 @@ function M.set_keymaps()
   end, "create collection")
 
   map("n", "collections_delete", function()
-    local entry = M.get_collection_at_line(cursor_line)
+    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    if entry and entry.is_feed then
+      delete_feed(entry)
+      return
+    end
     if not entry or not entry.collectionID then
       return
     end
@@ -485,6 +549,17 @@ function M.set_keymaps()
     end)
   end, "trash collection")
 
+  map("n", "collections_refresh", function()
+    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    if entry and entry.is_feed then
+      M.refresh_feeds(entry.feed_library_id)
+    elseif entry and entry.is_feeds_header then
+      M.refresh_feeds(nil)
+    else
+      M.refresh_counts()
+    end
+  end, "refresh (feed: fetch new items)")
+
   map("n", "collections_show_help", M.show_help, "help")
 end
 
@@ -498,8 +573,9 @@ function M.show_help()
     "  <CR>          Select collection / feed / Trash",
     "  <Tab>         Focus items pane",
     "  <leader>zt    Toggle collections pane",
-    "  <leader>zN    Create collection",
-    "  <leader>zD    Trash collection",
+    "  <leader>zN    Create collection (on Feeds: add feed)",
+    "  <leader>zD    Trash collection (on a feed: unsubscribe)",
+    "  <leader>zr    Refresh (on a feed / Feeds: fetch new items)",
     "  g?            This help",
   }, "\n"), vim.log.levels.INFO, { title = "zotero" })
 end

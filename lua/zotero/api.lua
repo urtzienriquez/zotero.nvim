@@ -145,16 +145,24 @@ function M.update_item(item_key, updates)
 end
 
 -- Marks feed items read/unread. Feed items live in their feed's own library,
--- hence the explicit library_id. opts.quiet suppresses error notifications
--- (used for the automatic mark-as-read on open, which shouldn't nag when the
--- companion plugin isn't installed).
+-- hence the explicit library_id. opts.quiet (the automatic mark-as-read on
+-- open) reports only the first failure per session, so a missing/outdated
+-- companion plugin is visible without nagging on every item opened.
+local _quiet_read_failure_reported = false
 function M.set_feed_items_read(library_id, item_keys, read, opts)
   opts = opts or {}
   return m_run("set_feed_items_read", function()
     local function fail(msg)
-      if not opts.quiet then
-        async_mod.notify("zotero: marking feed item failed: " .. msg, vim.log.levels.ERROR)
+      if opts.quiet then
+        if _quiet_read_failure_reported then
+          return false
+        end
+        _quiet_read_failure_reported = true
+        async_mod.notify("zotero: could not mark feed item as read: " .. msg
+          .. " (update the companion plugin to 1.2.1+; further failures won't be shown)", vim.log.levels.WARN)
+        return false
       end
+      async_mod.notify("zotero: marking feed item failed: " .. msg, vim.log.levels.ERROR)
       return false
     end
 
@@ -184,6 +192,109 @@ function M.set_feed_items_read(library_id, item_keys, read, opts)
       return true
     end
     return fail("unexpected response")
+  end)
+end
+
+-- POSTs `body` (a Lua table) as JSON to a companion-plugin endpoint.
+-- Returns (ok, parsed_or_error_message). The payload goes through a temp
+-- file (--data-binary @file) so big bodies such as OPML files don't hit the
+-- OS argv length limit.
+local function post_feed_endpoint(path, body)
+  local tmp = vim.fn.tempname()
+  local fd = assert(io.open(tmp, "wb"))
+  fd:write(async_mod.json_encode(body))
+  fd:close()
+  local res = async_mod.http({
+    "-X", "POST",
+    BASE .. path,
+    "-H", "Content-Type: application/json",
+    "--data-binary", "@" .. tmp,
+  })
+  os.remove(tmp)
+  db.invalidate_cache()
+
+  if res.code ~= 0 then
+    return false, "curl error: " .. curl_fail(res)
+  end
+  local ok, parsed = pcall(async_mod.json_decode, res.body)
+  parsed = ok and type(parsed) == "table" and parsed or nil
+  if res.http_code == 404 and not parsed then
+    return false, "endpoint not found -- update the zotero.nvim companion plugin to 1.2.1+"
+  end
+  if res.http_code ~= 200 or not parsed or not parsed.success then
+    return false, (parsed and parsed.error) or ("HTTP " .. tostring(res.http_code))
+  end
+  return true, parsed
+end
+
+-- Subscribes to an RSS/Atom feed. `name` is optional (defaults to the feed's
+-- own title). Returns the endpoint's response ({ libraryID, name, ... }) or nil.
+function M.add_feed(url, name)
+  return m_run("add_feed", function()
+    local ok, res = post_feed_endpoint("/connector/addFeed", { url = url, name = name })
+    if not ok then
+      async_mod.notify("zotero: adding feed failed: " .. res, vim.log.levels.ERROR)
+      return nil
+    end
+    if res.lastCheckError and res.lastCheckError ~= vim.NIL then
+      async_mod.notify("zotero: added feed '" .. res.name .. "', but fetching it failed: " .. res.lastCheckError,
+        vim.log.levels.WARN)
+    else
+      async_mod.notify("zotero: added feed '" .. res.name .. "'", vim.log.levels.INFO)
+    end
+    return res
+  end)
+end
+
+function M.delete_feed(library_id)
+  return m_run("delete_feed", function()
+    local ok, res = post_feed_endpoint("/connector/deleteFeed", { libraryID = library_id })
+    if not ok then
+      async_mod.notify("zotero: removing feed failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    async_mod.notify("zotero: removed feed '" .. tostring(res.name) .. "'", vim.log.levels.INFO)
+    return true
+  end)
+end
+
+-- Refreshes one feed (library_id) or all feeds (nil).
+function M.refresh_feeds(library_id)
+  return m_run("refresh_feeds", function()
+    local ok, res = post_feed_endpoint("/connector/refreshFeeds", { libraryID = library_id })
+    if not ok then
+      async_mod.notify("zotero: refreshing feeds failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    local errors = type(res.errors) == "table" and res.errors or {}
+    if #errors > 0 then
+      local lines = {}
+      for _, e in ipairs(errors) do
+        lines[#lines + 1] = "  " .. tostring(e.name) .. ": " .. tostring(e.error)
+      end
+      async_mod.notify("zotero: some feeds failed to refresh:\n" .. table.concat(lines, "\n"), vim.log.levels.WARN)
+    end
+    return true
+  end)
+end
+
+-- Imports feeds from an OPML file (read here, parsed by Zotero).
+function M.import_opml(path)
+  return m_run("import_opml", function()
+    local fd = io.open(path, "rb")
+    if not fd then
+      async_mod.notify("zotero: cannot read OPML file: " .. path, vim.log.levels.ERROR)
+      return nil
+    end
+    local opml = fd:read("*a")
+    fd:close()
+    local ok, res = post_feed_endpoint("/connector/importOPML", { opml = opml })
+    if not ok then
+      async_mod.notify("zotero: OPML import failed: " .. res, vim.log.levels.ERROR)
+      return nil
+    end
+    async_mod.notify("zotero: imported " .. tostring(res.added) .. " feed(s) from OPML", vim.log.levels.INFO)
+    return res.added
   end)
 end
 

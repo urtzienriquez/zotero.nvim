@@ -128,6 +128,7 @@ CONFIGURATION                                            *zotero-config*
         collections_focus_items     = "<Tab>",
         collections_new             = "<leader>zN",
         collections_delete          = "<leader>zD",
+        collections_refresh         = "<leader>zr",
         collections_focus_items_esc = "<Esc>",
         collections_show_help       = "g?",
       },
@@ -211,16 +212,27 @@ Collections Pane~
 Feeds~                                                        *zotero-feeds*
   Zotero stores each feed (and each group) as a separate library; only
   your personal library is shown under My Library. Subscribed feeds are
-  listed in a Feeds section with unread counts. Press |<CR>| on a feed to
+  listed in a Feeds section with unread counts (`Feeds (0)` when you have
+  none yet).
+
+  Managing feeds (companion plugin 1.2.1 or later):
+  - <leader>zN on the Feeds header or a feed asks for a URL; Zotero
+    checks it is an RSS/Atom feed, names it after the feed's title and
+    fetches it (see |:ZoteroAddFeed|). |:ZoteroImportOPML| imports many.
+  - <leader>zD on a feed unsubscribes from it.
+  - <leader>zr on a feed fetches new items; on the Feeds header it
+    refreshes all feeds (also |:ZoteroRefreshFeeds|).
+
+  Press |<CR>| on a feed to
   list its items. On a feed item, |<CR>| opens the preview and
   <leader>zb opens its link (URL, else DOI) in the browser; either
   marks the item read, as viewing it in Zotero does. <leader>zR toggles
-  read/unread. Read state needs companion plugin 1.1.0 or later
+  read/unread. Read state needs companion plugin 1.2.1 or later
   (|zotero-companion-plugin|).
 
   Feeds use the compact view by default (see `feed_view`), with unread
-  items marked `●` and read items dimmed (highlight groups
-  `ZoteroFeedUnread` and `ZoteroFeedRead`). Otherwise feed items are
+  items marked `●` (highlight group `ZoteroFeedUnread`); the marker goes
+  away once an item is read. Otherwise feed items are
   read-only: editing, deleting, marking, attaching and moving them are
   refused.
 
@@ -254,8 +266,9 @@ Collections Pane~
   <CR>            Select collection, feed or Trash (loads items)
   <Tab>           Focus items pane
   <leader>zt      Toggle collections pane
-  <leader>zN      Create new collection
-  <leader>zD      Trash selected collection
+  <leader>zN      Create new collection (on Feeds/a feed: add a feed)
+  <leader>zD      Trash selected collection (on a feed: unsubscribe)
+  <leader>zr      Refresh (on a feed: fetch new items; on Feeds: all)
   g?              Show help
 
 Items Pane~
@@ -298,6 +311,19 @@ COMMANDS                                                  *zotero-commands*
 :Zotero               Open the Zotero library browser
 :ZoteroDebug          Print database connection info and statistics
 :ZoteroImport {path}  Import a PDF into Zotero via the Connector API
+
+                                                            *:ZoteroAddFeed*
+:ZoteroAddFeed [{url} [{name}]]
+                      Subscribe to an RSS/Atom feed. Prompts for the URL
+                      when omitted; the name defaults to the feed's title.
+
+                                                         *:ZoteroImportOPML*
+:ZoteroImportOPML {file}
+                      Subscribe to the feeds in an OPML file. Feeds you
+                      already follow are skipped.
+
+                                                       *:ZoteroRefreshFeeds*
+:ZoteroRefreshFeeds   Fetch new items for all feeds.
 
                                                           *:ZoteroFilterType*
 :ZoteroFilterType [all | {type}... | -{type}...]

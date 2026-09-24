@@ -124,3 +124,26 @@ end, {
     end, candidates)
   end,
 })
+
+-- :ZoteroAddFeed                   prompt for a feed URL
+-- :ZoteroAddFeed {url} [name...]   subscribe (name defaults to the feed's title)
+vim.api.nvim_create_user_command("ZoteroAddFeed", function(opts)
+  local url = opts.fargs[1]
+  local name = #opts.fargs > 1 and table.concat(vim.list_slice(opts.fargs, 2), " ") or nil
+  require("zotero.ui.collections").add_feed(url, name)
+end, { nargs = "*", desc = "Subscribe to an RSS/Atom feed in Zotero" })
+
+vim.api.nvim_create_user_command("ZoteroImportOPML", function(opts)
+  local path = vim.fn.expand(opts.args)
+  async_mod.run("zotero:cmd.import_opml", function()
+    local added = async_mod.await(require("zotero.api").import_opml(path))
+    if added then
+      async_mod.to_main()
+      require("zotero.ui.collections").refresh_counts()
+    end
+  end)
+end, { nargs = 1, complete = "file", desc = "Import feeds into Zotero from an OPML file" })
+
+vim.api.nvim_create_user_command("ZoteroRefreshFeeds", function()
+  require("zotero.ui.collections").refresh_feeds(nil)
+end, { desc = "Fetch new items for all Zotero feeds" })

@@ -59,14 +59,98 @@ describe("api (mocked connector)", function()
       assert.same({ libraryID = 2, itemKeys = { "FEED0010" }, read = true }, captured)
     end)
 
-    it("stays silent on failure when quiet", function()
-      async_mod.http = function() return { code = 0, http_code = 404, body = "" } end
-      local orig_notify, notified = async_mod.notify, false
-      async_mod.notify = function() notified = true end
-      local ok = run(api.set_feed_items_read(2, { "X" }, true, { quiet = true }))
+    it("when quiet, reports only the first failure of the session", function()
+      async_mod.http = function()
+        return { code = 0, http_code = 500, body = vim.json.encode({ error = "'itemData' not loaded" }) }
+      end
+      local orig_notify, msgs = async_mod.notify, {}
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      local ok1 = run(api.set_feed_items_read(2, { "X" }, true, { quiet = true }))
+      local ok2 = run(api.set_feed_items_read(2, { "Y" }, true, { quiet = true }))
       async_mod.notify = orig_notify
-      assert.is_false(ok)
-      assert.is_false(notified)
+      assert.is_false(ok1)
+      assert.is_false(ok2)
+      assert.equals(1, #msgs)
+      assert.matches("itemData", msgs[1])
+    end)
+  end)
+
+  describe("feed management", function()
+    local captured_body, captured_url
+    before_each(function()
+      captured_body, captured_url = nil, nil
+    end)
+
+    local function mock_http(response)
+      async_mod.http = function(args)
+        captured_url = url_of(args)
+        for i, a in ipairs(args) do
+          if a == "--data-binary" then
+            local path = args[i + 1]:sub(2)
+            local fd = io.open(path, "rb")
+            captured_body = vim.json.decode(fd:read("*a"))
+            fd:close()
+          end
+        end
+        return response
+      end
+    end
+
+    local function ok(body)
+      body.success = true
+      return { code = 0, http_code = 200, body = vim.json.encode(body) }
+    end
+
+    it("add_feed posts url and optional name and returns the new feed", function()
+      mock_http(ok({ libraryID = 7, name = "My Feed" }))
+      local res = run(api.add_feed("https://example.org/rss", "My Feed"))
+      assert.matches("/connector/addFeed$", captured_url)
+      assert.same({ url = "https://example.org/rss", name = "My Feed" }, captured_body)
+      assert.equals(7, res.libraryID)
+    end)
+
+    it("add_feed reports the endpoint's error and returns nil", function()
+      mock_http({ code = 0, http_code = 409, body = vim.json.encode({ error = "Already subscribed to this feed" }) })
+      local msgs = {}
+      local orig_notify = async_mod.notify
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      local res = run(api.add_feed("https://example.org/rss"))
+      async_mod.notify = orig_notify
+      assert.is_nil(res)
+      assert.matches("Already subscribed", msgs[1])
+    end)
+
+    it("tells the user to update the companion plugin when the endpoint is missing", function()
+      mock_http({ code = 0, http_code = 404, body = "No endpoint found" })
+      local msgs = {}
+      local orig_notify = async_mod.notify
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      run(api.refresh_feeds(nil))
+      async_mod.notify = orig_notify
+      assert.matches("companion plugin to 1%.2%.1", msgs[1])
+    end)
+
+    it("delete_feed and refresh_feeds send the feed's libraryID", function()
+      mock_http(ok({ name = "X" }))
+      assert.is_true(run(api.delete_feed(2)))
+      assert.matches("/connector/deleteFeed$", captured_url)
+      assert.same({ libraryID = 2 }, captured_body)
+
+      mock_http(ok({ refreshed = 1, errors = {} }))
+      assert.is_true(run(api.refresh_feeds(2)))
+      assert.matches("/connector/refreshFeeds$", captured_url)
+      assert.same({ libraryID = 2 }, captured_body)
+    end)
+
+    it("import_opml sends the file's contents and returns the number added", function()
+      local path = vim.fn.tempname() .. ".opml"
+      local opml = '<?xml version="1.0"?><opml><body><outline type="rss" xmlUrl="https://e.org/a"/></body></opml>'
+      vim.fn.writefile({ opml }, path)
+      mock_http(ok({ added = 1 }))
+      assert.equals(1, run(api.import_opml(path)))
+      assert.matches("/connector/importOPML$", captured_url)
+      assert.equals(opml .. "\n", captured_body.opml)
+      vim.fn.delete(path)
     end)
   end)
 

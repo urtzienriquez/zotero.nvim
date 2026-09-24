@@ -1,4 +1,7 @@
+:ZoteroAddFeed	zotero.txt	/*:ZoteroAddFeed*
 :ZoteroFilterType	zotero.txt	/*:ZoteroFilterType*
+:ZoteroImportOPML	zotero.txt	/*:ZoteroImportOPML*
+:ZoteroRefreshFeeds	zotero.txt	/*:ZoteroRefreshFeeds*
 doc/zotero.txt	zotero.txt	/*doc\/zotero.txt*
 zotero	zotero.txt	/*zotero*
 zotero-api	zotero.txt	/*zotero-api*

@@ -157,6 +157,7 @@ require("zotero").setup({
     collections_focus_items     = "<Tab>",
     collections_new             = "<leader>zN",
     collections_delete          = "<leader>zD",
+    collections_refresh         = "<leader>zr",
     collections_focus_items_esc = "<Esc>",
     collections_show_help       = "g?",
   },
@@ -185,8 +186,9 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `<CR>`       | Select collection / expand-collapse / open feed, Trash or Marked |
 | `<Tab>`      | Focus items pane                                           |
 | `<leader>zt` | Toggle collections pane                                    |
-| `<leader>zN` | Create new collection                                      |
-| `<leader>zD` | Trash selected collection                                  |
+| `<leader>zN` | Create new collection (on Feeds or a feed: add a feed)     |
+| `<leader>zD` | Trash selected collection (on a feed: unsubscribe)         |
+| `<leader>zr` | Refresh (on a feed: fetch new items; on Feeds: all feeds)  |
 | `g?`         | Show help popup                                            |
 
 ### Items Pane
@@ -235,25 +237,43 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 | `:Zotero`              | Open the Zotero library browser    |
 | `:ZoteroDebug`         | Print database path and stats      |
 | `:ZoteroImport {path}` | Import a PDF via the Connector API |
+| `:ZoteroAddFeed [url] [name]` | Subscribe to an RSS/Atom feed (prompts for the URL when omitted; name defaults to the feed's title) |
+| `:ZoteroImportOPML {file}` | Import feeds from an OPML file (already-subscribed URLs are skipped) |
+| `:ZoteroRefreshFeeds` | Fetch new items for all feeds |
 | `:ZoteroFilterType [all \| type... \| -type...]` | Filter items by type: no args opens the picker, `all` clears, `book thesis` shows only those, `-webpage -note` hides those |
 
 ## Feeds
 
 Zotero stores every feed (and every group) as its own library. zotero.nvim
 shows only your personal library under **My Library**; subscribed feeds get
-their own **Feeds** section in the collections pane, with unread counts.
+their own **Feeds** section in the collections pane, with unread counts
+(shown as `Feeds (0)` until you subscribe to one).
+
+Managing feeds works like in Zotero's *New Feed → From URL*:
+
+- `<leader>zN` on the Feeds header (or any feed) asks for a URL. Zotero checks
+  that it's a real RSS/Atom feed, names it after the feed's title, fetches
+  it, and uses your Zotero defaults for refresh interval and cleanup.
+  `:ZoteroAddFeed {url} [name]` does the same from the command line.
+- `:ZoteroImportOPML {file}` subscribes to every feed in an OPML export.
+- `<leader>zD` on a feed unsubscribes (its items are removed, as in Zotero).
+- `<leader>zr` on a feed fetches new items now; on the Feeds header (or
+  `:ZoteroRefreshFeeds`) it refreshes all feeds. `<leader>zr` in the items
+  pane while viewing a feed refreshes that feed.
+
 Press `<CR>` on a feed to list its items. On a feed item, `<CR>` opens the
 preview (abstract and details) and `<leader>zb` opens its link
 in your browser; either one marks the item as read, as viewing it in Zotero
 does. `<leader>zR` toggles read/unread (on a visual selection too: if any
 selected item is unread, all are marked read). Feeds open in the compact view by
-default (`feed_view`), with a `●` in front of unread items and read items
-dimmed; the view you pick with `<leader>zv` in a feed is remembered separately
+default (`feed_view`), with a `●` in front of unread items (it disappears once
+read); the view you pick with `<leader>zv` in a feed is remembered separately
 from the library's. Otherwise feed items are read-only (to keep one, add it
 with Zotero itself or `<leader>zn` by DOI).
 
-Read/unread needs version 1.1.0 or later of the companion plugin (see below);
-without it, opening items still works but nothing is marked read.
+Adding, removing and refreshing feeds and read/unread need version 1.2.1 or
+later of the companion plugin (see below). Without it,
+browsing and opening feed items still work but nothing is marked read.
 
 ## PDF Import & Duplicate Detection
 

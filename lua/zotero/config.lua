@@ -50,6 +50,7 @@ M.defaults = {
     collections_focus_items = "<Tab>",
     collections_new = "<leader>zN",
     collections_delete = "<leader>zD",
+    collections_refresh = "<leader>zr",
     collections_focus_items_esc = "<Esc>",
     collections_show_help = "g?",
   },

@@ -195,16 +195,13 @@ local function format_items_compact(items)
         r[2] = r[2] + 2
       end
     elseif current_feed_library_id then
-      -- Feed view: unread dot in front, read items dimmed.
+      -- Feed view: unread dot in front; read items just lose the dot.
       local unread = item.unread == 1
       local prefix = unread and "● " or "  "
       line = prefix .. line
       for _, r in ipairs(regions) do
         r[1] = r[1] + #prefix
         r[2] = r[2] + #prefix
-        if not unread then
-          r[3] = "ZoteroFeedRead"
-        end
       end
       if unread then
         table.insert(regions, 1, { 0, #"●", "ZoteroFeedUnread" })
@@ -473,6 +470,10 @@ end
 
 function M.is_feed_mode()
   return current_feed_library_id ~= nil
+end
+
+function M.get_feed_library_id()
+  return current_feed_library_id
 end
 
 -- Feed items live in their own library, and the connector (like Zotero's
@@ -1256,7 +1257,12 @@ function M.set_keymaps()
   end, "cancel search")
 
   map("n", "items_refresh", function()
-    M.fetch_and_render(true)
+    if current_feed_library_id then
+      -- In a feed, also ask Zotero to fetch new items first.
+      require("zotero.ui.collections").refresh_feeds(current_feed_library_id)
+    else
+      M.fetch_and_render(true)
+    end
   end, "refresh")
 
   map("n", "items_toggle_columns", toggle_columns, "toggle column view")
