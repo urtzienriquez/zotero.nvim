@@ -358,8 +358,16 @@ Search~                                                      *zotero-search*
   Notes~
   - `ft:` reads Zotero's full-text database while Zotero is running,
     without locking it. If that read fails (the file is missing, Zotero
-    is writing to it, or your sqlite3 is older than 3.43), `ft:` terms
-    match nothing and a warning is shown once.
+    is writing to it, or your sqlite3 can't read it, see below), `ft:`
+    terms match nothing and a warning is shown once.
+  - `ft:` needs a sqlite3 built with FTS5, version 3.43 or newer. Linux
+    distributions' sqlite3 has it; the one that comes with macOS does
+    not. On a Mac, install Homebrew's (`brew install sqlite`) and put it
+    first on your PATH, e.g. in your shell profile: >sh
+      export PATH="$(brew --prefix sqlite)/bin:$PATH"
+<   Neovim must be started from that shell (or have that PATH) to pick it
+    up. The rest of the search works with either sqlite3; FTS5 only makes
+    it faster.
   - Words shorter than 3 characters are matched more slowly, and without
     the accent folding for `note:` terms.
   - Zotero's own quick search has phrases and the notes/full-text modes,

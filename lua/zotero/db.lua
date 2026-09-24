@@ -687,7 +687,13 @@ local function fulltext_attachment_ids(value)
     "SELECT rowid FROM fulltextContent WHERE fulltextContent MATCH '" .. types.escape_sql(match) .. "'",
   })
   if out.code ~= 0 then
-    warn("full-text search failed: " .. vim.trim(out.stderr or ""))
+    local err = vim.trim(out.stderr or "")
+    if err:find("no such module: fts5", 1, true) then
+      -- macOS's built-in sqlite3 is one of these.
+      warn("ft: needs a sqlite3 built with FTS5, and yours isn't (see :h zotero-search); ft: matches nothing")
+    else
+      warn("full-text search failed: " .. err)
+    end
     return {}
   end
   local ids = {}
