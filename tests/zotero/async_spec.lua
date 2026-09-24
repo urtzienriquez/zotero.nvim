@@ -71,38 +71,63 @@ describe("async.sqlite / async.copy", function()
   end)
 end)
 
-describe("async.http", function()
-  local server_job, port
+-- Minimal HTTP/1.0 server running on this Neovim's own event loop (vim.uv),
+-- so the async.http tests need no python3 and no fixed port: it binds port 0
+-- (the OS picks a free one) and is listening before the test starts. The
+-- earlier python3 -m http.server setup was unreliable on macOS CI runners.
+-- `routes` maps a request path to a response body (200); anything else 404s.
+local function start_http_server(routes)
+  local server = assert(vim.uv.new_tcp())
+  assert(server:bind("127.0.0.1", 0))
+  local port = server:getsockname().port
+  assert(server:listen(16, function(err)
+    if err then
+      return
+    end
+    local client = vim.uv.new_tcp()
+    server:accept(client)
+    local request = ""
+    client:read_start(function(read_err, chunk)
+      if read_err or not chunk then
+        client:close()
+        return
+      end
+      request = request .. chunk
+      if not request:find("\r\n\r\n", 1, true) then
+        return -- headers not complete yet
+      end
+      client:read_stop()
+      local body = routes[request:match("^%u+ (%S+)")]
+      local status = body and "200 OK" or "404 Not Found"
+      body = body or "not found"
+      client:write(
+        ("HTTP/1.0 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s")
+          :format(status, #body, body),
+        function()
+          client:close()
+        end
+      )
+    end)
+  end))
+  return server, port
+end
 
-  if vim.fn.executable("python3") == 0 then
-    it("skipped: python3 not available to run the local test HTTP server", function() end)
-    return
-  end
+describe("async.http", function()
+  local server, port
 
   before_each(function()
-    port = 18000 + math.random(1, 900)
-    local docroot = vim.fn.tempname()
-    vim.fn.mkdir(docroot, "p")
-    vim.fn.writefile({ '{"ok":true}' }, docroot .. "/data.json")
-    server_job = vim.system(
-      { "python3", "-m", "http.server", tostring(port), "--bind", "127.0.0.1", "--directory", docroot },
-      { detach = false }
-    )
-    vim.wait(1000, function()
-      return vim.system({ "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:" .. port .. "/" }):wait().code == 0
-    end, 50)
+    server, port = start_http_server({ ["/data.json"] = '{"ok":true}' })
   end)
 
   after_each(function()
-    if server_job then
-      server_job:kill(15)
-      server_job:wait(2000)
+    if server and not server:is_closing() then
+      server:close()
     end
   end)
 
   it("parses a 200 response with a JSON body", function()
     local res = run_sync(function()
-      return async_mod.http({ "http://127.0.0.1:" .. port .. "/data.json" })
+      return async_mod.http({ "--max-time", "5", "http://127.0.0.1:" .. port .. "/data.json" })
     end)
     assert.equals(0, res.code)
     assert.equals(200, res.http_code)
@@ -111,7 +136,7 @@ describe("async.http", function()
 
   it("parses a 404 response", function()
     local res = run_sync(function()
-      return async_mod.http({ "http://127.0.0.1:" .. port .. "/nonexistent" })
+      return async_mod.http({ "--max-time", "5", "http://127.0.0.1:" .. port .. "/nonexistent" })
     end)
     assert.equals(0, res.code)
     assert.equals(404, res.http_code)

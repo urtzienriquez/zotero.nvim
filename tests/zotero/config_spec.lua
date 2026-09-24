@@ -65,7 +65,10 @@ describe("config auto-detection", function()
     vim.env.HOME = tmp
     local config = fresh_config()
     config.set({})
-    assert.equals(fixture_db, config.get().db_path)
+    -- Neovim resolves symlinks when $HOME is set, so expand("~") returns the
+    -- real path. On macOS the temp dir is under /var -> /private/var, so the
+    -- same file comes back spelled differently: compare real paths.
+    assert.equals(vim.uv.fs_realpath(fixture_db), vim.uv.fs_realpath(config.get().db_path))
 
     vim.fn.delete(tmp, "rf")
   end)
