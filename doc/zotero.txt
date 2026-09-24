@@ -155,7 +155,6 @@ CONFIGURATION                                            *zotero-config*
         -- Edit buffer (ee); save with :w or :ZoteroSave
         edit_regenerate_key         = "gK",
         edit_show_fields            = "K",
-        edit_close                  = "q",
         edit_show_help              = "g?",
       },
 
@@ -455,8 +454,10 @@ Detail Panel~
 
 Edit Buffer~
   Opened with `ee` on an item. Edit the JSON representation, then save
-  with |:w| (or |:ZoteroSave|). Press K to see the valid field names for
-  the item's type. Press gK to regenerate the Better BibTeX citation key.
+  with |:w| (or |:ZoteroSave|), or save and close with |:wq|. Close it
+  with |:q| (|:q!| to discard your changes). Press K to see the valid
+  field names for the item's type. Press gK to regenerate the Better
+  BibTeX citation key.
 
 ==============================================================================
 KEYMAPS                                                    *zotero-keymaps*
@@ -595,10 +596,12 @@ Old keymaps~                                         *zotero-legacy-keymaps*
     })
 <
 Edit Buffer~                                              *zotero-edit-maps*
-  :w, :ZoteroSave Save changes to Zotero
+  :w, :ZoteroSave Save changes to Zotero (waits until Zotero has them)
+  :wq             Save and close; stays open if the save fails
+  :q              Close (refuses while there are unsaved changes)
+  :q!             Close, discarding unsaved changes
   K               List the fields valid for this item type, and all types
   gK              Regenerate Better BibTeX citation key
-  q               Close editor
   g?              Open this help
 
 ==============================================================================

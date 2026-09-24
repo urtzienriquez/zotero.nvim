@@ -266,7 +266,7 @@ describe("edit buffer keymaps", function()
     edit.open_edit(item_id)
     wait_until(function() return #vim.api.nvim_list_wins() > wins_before end)
     local buf = vim.api.nvim_get_current_buf()
-    wait_until(function() return vim.fn.maparg("q", "n", false, true).buffer == 1 end)
+    wait_until(function() return vim.fn.maparg("g?", "n", false, true).buffer == 1 end)
     return buf
   end
 
@@ -274,12 +274,12 @@ describe("edit buffer keymaps", function()
     return vim.fn.maparg(lhs, "n", false, true).buffer == 1
   end
 
-  it("maps gK, K, q and g? and no longer the old <leader>zs / <leader>zk", function()
+  it("maps gK, K and g?, but not q (use :q) nor the old <leader>zs / <leader>zk", function()
     local buf = open_buffer(2)
     assert.is_true(mapped("gK"))
     assert.is_true(mapped("K"))
-    assert.is_true(mapped("q"))
     assert.is_true(mapped("g?"))
+    assert.is_false(mapped("q"))
     assert.is_false(mapped("<leader>zs"))
     assert.is_false(mapped("<leader>zk"))
     vim.api.nvim_buf_delete(buf, { force = true })
@@ -305,5 +305,78 @@ describe("edit buffer keymaps", function()
     assert.is_false(mapped("gK"))
     assert.is_false(mapped("K"))
     vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+end)
+
+describe("edit buffer :wq / :q (fixture db, mocked connector)", function()
+  local orig_ping, orig_update
+
+  before_each(function()
+    fixture.setup()
+    orig_ping, orig_update = api.ping_async, api.update_item
+  end)
+
+  after_each(function()
+    api.ping_async, api.update_item = orig_ping, orig_update
+    fixture.teardown()
+  end)
+
+  -- Opens the editor on item 2 and changes its publication title.
+  local function open_edited()
+    local wins_before = #vim.api.nvim_list_wins()
+    edit.open_edit(2)
+    wait_until(function() return #vim.api.nvim_list_wins() > wins_before end)
+    local buf = vim.api.nvim_get_current_buf()
+    wait_until(function() return vim.b[buf].zotero_header_lines ~= nil end)
+    local header_count = vim.b[buf].zotero_header_lines
+    local data = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(buf, header_count, -1, false), "\n"))
+    data.fields.publicationTitle = "Science Weekly"
+    vim.api.nvim_buf_set_lines(buf, header_count, -1, false, vim.split(vim.json.encode(data), "\n"))
+    assert.is_true(vim.bo[buf].modified)
+    return buf, wins_before
+  end
+
+  it(":wq saves to Zotero and closes the editor", function()
+    api.ping_async = function() return async_mod.run("stub", function() return true end) end
+    local captured
+    api.update_item = function(_, updates)
+      captured = updates
+      return async_mod.run("stub2", function() return true end)
+    end
+    local buf, wins_before = open_edited()
+    vim.cmd("wq")
+    assert.equals("Science Weekly", captured.fields.publicationTitle)
+    assert.is_false(vim.api.nvim_buf_is_valid(buf))
+    assert.equals(wins_before, #vim.api.nvim_list_wins())
+  end)
+
+  it(":w saves and clears 'modified' before returning", function()
+    api.ping_async = function() return async_mod.run("stub", function() return true end) end
+    api.update_item = function() return async_mod.run("stub2", function() return true end) end
+    local buf = open_edited()
+    vim.cmd("write")
+    assert.is_false(vim.bo[buf].modified)
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it(":wq keeps the editor open, with the edits, when the save fails", function()
+    api.ping_async = function() return async_mod.run("stub", function() return false end) end
+    local buf = open_edited()
+    local ok, err = pcall(vim.cmd, "wq") -- the save error surfaces as :wq's error
+    assert.is_false(ok)
+    assert.matches("Zotero is not running", err)
+    assert.is_true(vim.api.nvim_buf_is_valid(buf))
+    assert.is_true(vim.bo[buf].modified)
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it(":q refuses with unsaved changes; :q! closes", function()
+    local buf = open_edited()
+    local ok, err = pcall(vim.cmd, "q")
+    assert.is_false(ok)
+    assert.matches("E37", err)
+    assert.is_true(vim.api.nvim_buf_is_valid(buf))
+    vim.cmd("q!")
+    assert.is_false(vim.api.nvim_buf_is_valid(buf))
   end)
 end)
