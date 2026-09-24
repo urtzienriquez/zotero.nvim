@@ -257,7 +257,7 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `mm`        | Toggle mark                                             |
 | `rr`        | Toggle read/unread (feed items)                         |
 | `st` / `sy` / `sd` | Sort by title / year / date added (again: reverse) |
-| `ff` / `fc` | Search / clear search                                   |
+| `ff` / `fc` | Search (fields, phrases, OR, NOT, notes, PDF full text: `:h zotero-search`) / clear search |
 | `ft`        | Item-type checklist (show/hide types, with counts)      |
 | `fT`        | Tag checklist: show only items with the checked tags    |
 | `t1`…`t9`   | Toggle Zotero colored tag 1–9 on the item(s) (visual selection too) |

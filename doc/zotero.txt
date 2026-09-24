@@ -258,11 +258,113 @@ Feeds~                                                        *zotero-feeds*
   refused.
 
 Items Pane~
-  Scroll items with |j|/|k|. Press |<CR>| to see the full item
-  detail. Search with `ff`, clear with `fc`. Sort with `st` (title),
-  `sy` (year), `sd` (date added). Filter by item type with `ft` (or
-  |:ZoteroFilterType|); the
-  filter stays active when switching collections or feeds.
+  Scroll items with |j|/|k|. Press |<CR>| to see the full item detail.
+  Search with `ff` (see |zotero-search|), clear with `fc`. Sort with `st`
+  (title), `sy` (year), `sd` (date added). Filter by item type with `ft`
+  (or |:ZoteroFilterType|); the filter stays active when switching
+  collections or feeds.
+
+Search~                                                      *zotero-search*
+  `ff` prompts for a query and lists the matching items in the current
+  view: My Library, a collection or a feed. It combines with the item-type
+  (`ft`) and tag (`fT`) filters. The query is shown in the winbar; `fc`
+  clears it.
+
+  Where a word is looked for~
+  A plain word is matched against each item's
+    - title, publication, abstract and date
+    - creators (first and last names)
+    - tags
+    - DOI and citation key
+  anywhere in the text (`clim` finds "Microclimate"), ignoring case and
+  accents (`nunez` finds "Núñez"). A word of exactly 8 letters/digits also
+  matches the item with that Zotero item key (`ABCD1234`).
+
+  Field prefixes~
+  A prefix limits a word (or phrase) to one field. Except for `ft:` and
+  `year:`, it still matches anywhere in the field, ignoring case and
+  accents.
+
+  author:{word}   Creators: authors, editors… (first and last name, so
+                  `author:"raymond huey"` works)
+  title:{word}    Title
+  pub:{word}      Publication (journal, book, …)
+  abstract:{word} Abstract
+  tag:{word}      Tags
+  doi:{word}      DOI
+  citekey:{word}  Citation key
+  year:{year}     Year of the date: `year:2019`, or a range:
+                  `year:2010-2020`, `year:2015-` (from 2015),
+                  `year:-1990` (up to 1990)
+  note:{word}     Child notes of the item and the annotations on its PDFs
+                  (highlighted text and comments). A standalone note
+                  matches itself.
+  ft:{word}       The full text of the item's attachments, as indexed by
+                  Zotero (Zotero Settings > Search) and stored in
+                  `fulltext.sqlite` next to your `zotero.sqlite`. Matches
+                  whole words, and a plain word also matches the start
+                  of one: `ft:clim` finds "climate" but not
+                  "microclimate". Only files Zotero has indexed can match.
+
+  Operators~
+  a b             Every word must match.
+  "a b"           An exact phrase. Works after a prefix too:
+                  `author:"raymond huey"`, `ft:"species distribution"`
+                  (no prefix matching inside an `ft:` phrase).
+  a OR b          Either one. `|` works the same: `a | b`. Only the
+                  upper-case `OR` is an operator; `or` is a word.
+  -a              Leave out items that match. Also `-"a b"`,
+                  `-author:a`, `-ft:a`…
+
+  OR binds tighter than the space: `x a OR b` means x and (a or b).
+  There are no parentheses.
+
+  Alternatives inside a prefix~
+  After a prefix, a quote may hold several alternatives separated by `OR`
+  or `|`; each is a word or a phrase:
+
+    author:"huey OR kearney"             Huey or Kearney
+    author:"raymond huey | kearney"      the phrase "raymond huey", or
+                                         Kearney
+    -author:"huey OR kearney"            neither of them
+    ft:"climate change OR global warming"
+                                         either phrase in the full text
+
+  With no `OR`/`|` inside, the quote is a single phrase
+  (`ft:"climate change"`). Without a prefix it is always a single phrase:
+  `"huey OR kearney"` looks for that exact text.
+
+  Anything that doesn't read as an operator is searched for as text:
+  `OR` at the start or end, a bare `-`, a quote with no closing quote, or
+  a prefix with nothing after it (`author:`). Other `word:` forms are
+  plain text, so a pasted URL or DOI just works.
+
+  Examples~
+    ft:"climate change" author:huey
+                          Huey's papers whose PDF mentions climate change
+    author:"huey OR kearney" year:2010-
+                          by Huey or Kearney, from 2010 on
+    title:thermal -author:huey
+                          "thermal" in the title, not by Huey
+    niche OR "distribution model"
+                          the word or the phrase, anywhere
+    ft:"range shift" -ft:model
+                          the PDF mentions range shifts and never
+                          "model…"
+    note:todo | note:check
+                          items with a to-do in their notes
+    10.1038/nature01286   the item with that DOI
+
+  Notes~
+  - `ft:` reads Zotero's full-text database while Zotero is running,
+    without locking it. If that read fails (the file is missing, Zotero
+    is writing to it, or your sqlite3 is older than 3.43), `ft:` terms
+    match nothing and a warning is shown once.
+  - Words shorter than 3 characters are matched more slowly, and without
+    the accent folding for `note:` terms.
+  - Zotero's own quick search has phrases and the notes/full-text modes,
+    but no field prefixes, OR or NOT: those only exist in its Advanced
+    Search.
 
 Item-type checklist~                                    *zotero-type-filter*
   `ft` opens a floating checklist of the item types in the current
@@ -423,7 +525,7 @@ Sort~                                               *zotero-items-sort-maps*
   Pressing the same sort key again reverses the order.
 
 Filter~                                           *zotero-items-filter-maps*
-  ff              Search
+  ff              Search (see |zotero-search|)
   fc              Clear search
   ft              Item-type checklist (see |zotero-type-filter|)
   fT              Tag checklist (see |zotero-tag-filter|)

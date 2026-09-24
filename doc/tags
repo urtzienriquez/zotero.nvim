@@ -30,6 +30,7 @@ zotero-keymaps	zotero.txt	/*zotero-keymaps*
 zotero-legacy-keymaps	zotero.txt	/*zotero-legacy-keymaps*
 zotero-open_library()	zotero.txt	/*zotero-open_library()*
 zotero-requirements	zotero.txt	/*zotero-requirements*
+zotero-search	zotero.txt	/*zotero-search*
 zotero-setup()	zotero.txt	/*zotero-setup()*
 zotero-tag-assign	zotero.txt	/*zotero-tag-assign*
 zotero-tag-filter	zotero.txt	/*zotero-tag-filter*

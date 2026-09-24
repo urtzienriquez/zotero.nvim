@@ -3,6 +3,7 @@ local M = {}
 local types = require("zotero.types")
 local config_mod = require("zotero.config")
 local async_mod = require("zotero.async")
+local search_query = require("zotero.search_query")
 
 local function cfg()
   return config_mod.get()
@@ -425,8 +426,12 @@ local function detect_fts5()
 end
 
 -- Builds (or reuses) a precomputed FTS5 trigram search index inside the
--- private DB copy: one row per item, `body` = every column get_items
--- searches, pre-concatenated, with accents folded in by `remove_diacritics`.
+-- private DB copy: one row per item, one column per searchable field (so
+-- `author:` etc. can MATCH a single column), with accents folded in by
+-- `remove_diacritics`. Several creators/tags are joined with "; " so a
+-- phrase can't run from one name into the next.
+-- A second table, zn_notes, holds one row per note / annotation keyed on the
+-- top-level item it belongs to, for `note:` searches.
 -- Rebuilt lazily (only when a search actually runs, once per copy),
 -- mirroring the copy_task/copy_lock single-flight pattern in
 -- ensure_db_copy(). The index lives inside the copy, so it is keyed on the
@@ -447,27 +452,37 @@ local function ensure_search_index(dbfile)
         local build_sql = string.format(
           [[
           DROP TABLE IF EXISTS zn_search;
-          CREATE VIRTUAL TABLE zn_search USING fts5(itemid UNINDEXED, body, tokenize='trigram remove_diacritics 1');
-          INSERT INTO zn_search(itemid, body)
-          SELECT
-            i.itemID,
-            COALESCE(t.value,'') || ' ' || COALESCE(p.value,'') || ' ' || COALESCE(ab.value,'') || ' ' ||
-            COALESCE(dt.value,'') || ' ' || COALESCE(cr.names,'') || ' ' || COALESCE(tg.names,'')
+          CREATE VIRTUAL TABLE zn_search USING fts5(
+            itemid UNINDEXED, title, pub, abstract, date, creators, tags, doi, citekey,
+            tokenize='trigram remove_diacritics 1'
+          );
+          INSERT INTO zn_search(itemid, title, pub, abstract, date, creators, tags, doi, citekey)
+          SELECT i.itemID, t.value, p.value, ab.value, dt.value, cr.names, tg.names, doi.value, ck.value
           FROM items i
           LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) t  ON t.itemID = i.itemID
           LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) p  ON p.itemID = i.itemID
           LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) ab ON ab.itemID = i.itemID
           LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) dt ON dt.itemID = i.itemID
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) doi ON doi.itemID = i.itemID
+          LEFT JOIN (SELECT id.itemID, dv.value FROM itemData id JOIN itemDataValues dv ON id.valueID=dv.valueID WHERE id.fieldID=%d) ck ON ck.itemID = i.itemID
           LEFT JOIN (
-            SELECT ic.itemID, group_concat(c.firstName || ' ' || c.lastName, ' ') AS names
+            SELECT ic.itemID, group_concat(TRIM(COALESCE(c.firstName,'') || ' ' || COALESCE(c.lastName,'')), '; ') AS names
             FROM itemCreators ic JOIN creators c ON ic.creatorID = c.creatorID GROUP BY ic.itemID
           ) cr ON cr.itemID = i.itemID
           LEFT JOIN (
-            SELECT it2.itemID, group_concat(tg2.name, ' ') AS names
+            SELECT it2.itemID, group_concat(tg2.name, '; ') AS names
             FROM itemTags it2 JOIN tags tg2 ON it2.tagID = tg2.tagID GROUP BY it2.itemID
           ) tg ON tg.itemID = i.itemID;
+          DROP TABLE IF EXISTS zn_notes;
+          CREATE VIRTUAL TABLE zn_notes USING fts5(itemid UNINDEXED, body, tokenize='trigram remove_diacritics 1');
+          INSERT INTO zn_notes(itemid, body)
+          SELECT COALESCE(n.parentItemID, n.itemID), n.note FROM itemNotes n WHERE n.note IS NOT NULL
+          UNION ALL
+          SELECT COALESCE(att.parentItemID, att.itemID), COALESCE(a.text,'') || ' ' || COALESCE(a.comment,'')
+          FROM itemAnnotations a JOIN itemAttachments att ON a.parentItemID = att.itemID;
           ]],
-          FIELD_IDS.title, FIELD_IDS.publicationTitle, FIELD_IDS.abstractNote, FIELD_IDS.date
+          FIELD_IDS.title, FIELD_IDS.publicationTitle, FIELD_IDS.abstractNote, FIELD_IDS.date,
+          FIELD_IDS.DOI, FIELD_IDS.citationKey
         )
         local out = async_mod.sqlite(dbfile, { build_sql })
         if out.code ~= 0 then
@@ -536,6 +551,198 @@ local function type_list(names)
     quoted[#quoted + 1] = "'" .. types.escape_sql(n) .. "'"
   end
   return "(" .. table.concat(quoted, ",") .. ")"
+end
+
+-- ---------------------------------------------------------------------------
+-- Search (`ff`): see lua/zotero/search_query.lua for the syntax.
+
+-- `col LIKE '%text%'`, accent-insensitive in both directions: the column is
+-- folded by deaccent_sql, the query text by deaccent_word.
+local function like_folded(col, text)
+  return "(" .. col .. " LIKE '%" .. types.escape_sql(text) .. "%' OR " .. deaccent_sql(col)
+    .. " LIKE '%" .. types.escape_sql(deaccent_word(text)) .. "%')"
+end
+
+local function item_field_like(field_id, text)
+  return "EXISTS (SELECT 1 FROM itemData idf JOIN itemDataValues dvf ON idf.valueID = dvf.valueID"
+    .. " WHERE idf.itemID = i.itemID AND idf.fieldID = " .. field_id .. " AND " .. like_folded("dvf.value", text) .. ")"
+end
+
+-- The metadata fields a search can be limited to with a prefix
+-- (`author:huey`); a plain word matches any of them. `column` is the field's
+-- zn_search column, `like` its fallback for when the index can't be used
+-- (older sqlite3 builds, a failed index build, a term too short for trigram
+-- MATCH). Relies on the t/p/y/k joins of get_items' query.
+local META_FIELDS = {
+  { scope = "title", column = "title", like = function(x) return like_folded("t.title", x) end },
+  { scope = "pub", column = "pub", like = function(x) return like_folded("p.publicationTitle", x) end },
+  { scope = "author", column = "creators", like = function(x)
+    return "EXISTS (SELECT 1 FROM itemCreators icf JOIN creators cf ON icf.creatorID = cf.creatorID"
+      .. " WHERE icf.itemID = i.itemID AND "
+      .. like_folded("TRIM(COALESCE(cf.firstName,'') || ' ' || COALESCE(cf.lastName,''))", x) .. ")"
+  end },
+  { scope = "date", column = "date", like = function(x) return "y.date_str LIKE '" .. types.escape_sql(x) .. "%'" end },
+  { scope = "citekey", column = "citekey", like = function(x) return like_folded("k.citationKey", x) end },
+  { scope = "abstract", column = "abstract", like = function(x) return item_field_like(FIELD_IDS.abstractNote, x) end },
+  { scope = "doi", column = "doi", like = function(x) return item_field_like(FIELD_IDS.DOI, x) end },
+  { scope = "tag", column = "tags", like = function(x)
+    return "EXISTS (SELECT 1 FROM itemTags itf JOIN tags tf ON itf.tagID = tf.tagID"
+      .. " WHERE itf.itemID = i.itemID AND " .. like_folded("tf.name", x) .. ")"
+  end },
+}
+local META_BY_SCOPE = {}
+for _, f in ipairs(META_FIELDS) do
+  META_BY_SCOPE[f.scope] = f
+end
+
+-- MATCH (not LIKE) against the index: remove_diacritics only folds accents
+-- for the MATCH/tokenizer path. Wrapped as a quoted FTS5 phrase so
+-- punctuation/operators are treated literally; `column` limits it to one
+-- field.
+local function index_match(text, column)
+  local phrase = '"' .. text:gsub('"', '""') .. '"'
+  if column then
+    phrase = column .. " : " .. phrase
+  end
+  return "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '" .. types.escape_sql(phrase) .. "')"
+end
+
+-- A metadata term: one field (`field` from META_FIELDS) or, with nil, any of
+-- them plus an exact item-key match.
+local function meta_predicate(text, use_index, field)
+  local pred
+  if use_index and vim.fn.strchars(text) >= 3 then
+    pred = index_match(text, field and field.column)
+  elseif field then
+    pred = field.like(text)
+  else
+    local ors = {}
+    for _, f in ipairs(META_FIELDS) do
+      ors[#ors + 1] = f.like(text)
+    end
+    pred = "(" .. table.concat(ors, " OR ") .. ")"
+  end
+  -- Zotero item keys are 8 upper-case alphanumerics; match one exactly, as
+  -- Zotero's own quick search does.
+  if not field and text:match("^%w%w%w%w%w%w%w%w$") then
+    pred = "(" .. pred .. " OR i.key = '" .. text:upper() .. "')"
+  end
+  return pred
+end
+
+-- `year:2019` or a range, `year:2010-2020` (either end may be left open:
+-- `year:2015-`, `year:-1990`). Anything else is matched against the start
+-- of the date.
+local function year_predicate(text)
+  local from, to = text:match("^(%d*)%-(%d*)$")
+  if from and (from ~= "" or to ~= "") then
+    local conds = {}
+    if from ~= "" then
+      conds[#conds + 1] = "y.year >= " .. sql_int(from)
+    end
+    if to ~= "" then
+      conds[#conds + 1] = "y.year <= " .. sql_int(to)
+    end
+    return table.concat(conds, " AND ")
+  end
+  return "y.date_str LIKE '" .. types.escape_sql(text) .. "%'"
+end
+
+-- Child notes and PDF annotations (text and comment), matched to the
+-- top-level item they belong to. A standalone note matches itself.
+local function note_predicate(text, use_index)
+  if use_index and vim.fn.strchars(text) >= 3 then
+    local phrase = '"' .. text:gsub('"', '""') .. '"'
+    return "i.itemID IN (SELECT itemid FROM zn_notes WHERE zn_notes MATCH '" .. types.escape_sql(phrase) .. "')"
+  end
+  local like = "LIKE '%" .. types.escape_sql(text) .. "%'"
+  return "i.itemID IN (SELECT COALESCE(n.parentItemID, n.itemID) FROM itemNotes n WHERE n.note " .. like .. ")"
+    .. " OR i.itemID IN (SELECT COALESCE(att.parentItemID, att.itemID) FROM itemAnnotations a"
+    .. " JOIN itemAttachments att ON a.parentItemID = att.itemID"
+    .. " WHERE a.text " .. like .. " OR a.comment " .. like .. ")"
+end
+
+-- Zotero keeps the full text of indexed PDFs in a separate database next to
+-- zotero.sqlite: an FTS5 table whose rowid is the attachment's itemID. Zotero
+-- holds a lock on it, so it's opened `immutable` (read without locking);
+-- a read that races one of Zotero's writes just errors and matches nothing.
+local _fulltext_warned = false
+local function fulltext_attachment_ids(value)
+  local path = vim.fs.joinpath(vim.fs.dirname(cfg().db_path), "fulltext.sqlite")
+  local function warn(msg)
+    if not _fulltext_warned then
+      _fulltext_warned = true
+      async_mod.notify("zotero: " .. msg, vim.log.levels.WARN)
+    end
+  end
+  if not vim.uv.fs_stat(path) then
+    warn("no full-text index (" .. path .. "); ft: matches nothing")
+    return {}
+  end
+  local uri = "file:" .. path:gsub("[%%?#]", function(c) return string.format("%%%02X", c:byte()) end) .. "?immutable=1"
+  -- A bare word also matches as a prefix (`clim` finds "climate"), like
+  -- Zotero's own full-text search; a quoted phrase must match exactly.
+  local match = '"' .. value.text:gsub('"', '""') .. '"' .. (value.phrase and "" or "*")
+  local out = async_mod.sqlite(uri, {
+    "SELECT rowid FROM fulltextContent WHERE fulltextContent MATCH '" .. types.escape_sql(match) .. "'",
+  })
+  if out.code ~= 0 then
+    warn("full-text search failed: " .. vim.trim(out.stderr or ""))
+    return {}
+  end
+  local ids = {}
+  for id in out.stdout:gmatch("%d+") do
+    ids[#ids + 1] = id
+  end
+  return ids
+end
+
+local function fulltext_predicate(value)
+  local ids = fulltext_attachment_ids(value)
+  if #ids == 0 then
+    return "0"
+  end
+  return "i.itemID IN (SELECT COALESCE(fa.parentItemID, fa.itemID) FROM itemAttachments fa WHERE fa.itemID IN ("
+    .. table.concat(ids, ",") .. "))"
+end
+
+-- The WHERE fragment for a search string, or nil when it has no terms.
+-- Relies on the t/p/y/k joins of get_items' query. Every term is wrapped in
+-- COALESCE(…, 0) so a NULL column can't turn `NOT` into "exclude everything".
+-- `dbfile` must be the copy the query will run against, since the index
+-- lives inside it.
+local function search_clause(search_term, dbfile)
+  local groups = search_query.parse(search_term)
+  if #groups == 0 then
+    return nil
+  end
+  local use_index = dbfile and ensure_search_index(dbfile)
+  local ands = {}
+  for _, group in ipairs(groups) do
+    local ors = {}
+    for _, term in ipairs(group) do
+      -- `author:"huey OR kearney"`: one term, several values, any of which
+      -- may match (and `-` leaves out all of them).
+      local alts = {}
+      for _, value in ipairs(term.values) do
+        local pred
+        if term.scope == "ft" then
+          pred = fulltext_predicate(value)
+        elseif term.scope == "note" then
+          pred = note_predicate(value.text, use_index)
+        elseif term.scope == "year" then
+          pred = year_predicate(value.text)
+        else
+          pred = meta_predicate(value.text, use_index, META_BY_SCOPE[term.scope])
+        end
+        alts[#alts + 1] = "(" .. pred .. ")"
+      end
+      local pred = "COALESCE((" .. table.concat(alts, " OR ") .. "), 0)"
+      ors[#ors + 1] = term.negate and ("NOT " .. pred) or pred
+    end
+    ands[#ands + 1] = "(" .. table.concat(ors, " OR ") .. ")"
+  end
+  return "(" .. table.concat(ands, " AND ") .. ")"
 end
 
 function M.get_stats()
@@ -660,69 +867,28 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
     end
 
-    if search_term and search_term ~= "" then
-      local words = {}
-      for w in search_term:gmatch("%S+") do
-        words[#words + 1] = { raw = w, escaped = types.escape_sql(w) }
-      end
-      if #words > 0 then
-        -- Prefer the FTS5 index when available; fall back to the
-        -- REPLACE-chain LIKE clauses for older sqlite3 builds, a failed
-        -- index build, or a word too short for trigram MATCH. Must use
-        -- MATCH (not LIKE) against the index: remove_diacritics only folds
-        -- accents for the MATCH/tokenizer path, not LIKE. Wrapped as a
-        -- quoted FTS5 phrase so punctuation/operators are treated literally.
-        local search_dbfile = ensure_db_copy()
-        local use_index = search_dbfile and ensure_search_index(search_dbfile)
+    -- Checked before building the search clause: an `ft:` term queries the
+    -- full-text database, which a cache hit shouldn't redo.
+    local limit = limit_override or cfg().max_items
+    local dbfile, key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
+      .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit)
+      .. "|" .. tostring(library_id) .. "|+" .. table.concat(include_types, ",")
+      .. "|-" .. table.concat(exclude_types, ",") .. "|#" .. table.concat(tags, "\31"))
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
 
-        local clauses = {}
-        for _, word in ipairs(words) do
-          local escaped = word.escaped
-          if use_index and vim.fn.strchars(word.raw) >= 3 then
-            local phrase = '"' .. word.raw:gsub('"', '""') .. '"'
-            clauses[#clauses + 1] = "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '"
-              .. types.escape_sql(phrase) .. "')"
-          else
-            -- Deaccent the query word too, not just the column, so this
-            -- fallback stays accent-insensitive in both directions.
-            local deaccented_escaped = types.escape_sql(deaccent_word(word.raw))
-            clauses[#clauses + 1] = [[(
-              (t.title LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t.title") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
-              OR (p.publicationTitle LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("p.publicationTitle") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
-              OR EXISTS (
-                SELECT 1 FROM itemCreators ic2
-                JOIN creators c2 ON ic2.creatorID = c2.creatorID
-                WHERE ic2.itemID = i.itemID
-                AND (c2.lastName LIKE '%]] .. escaped .. [[%'
-                  OR c2.firstName LIKE '%]] .. escaped .. [[%'
-                  OR ]] .. deaccent_sql("c2.lastName") .. [[ LIKE '%]] .. deaccented_escaped .. [[%'
-                  OR ]] .. deaccent_sql("c2.firstName") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
-              )
-              OR y.date_str LIKE ']] .. escaped .. [[%'
-              OR EXISTS (
-                SELECT 1 FROM itemData id3
-                JOIN itemDataValues dv3 ON id3.valueID = dv3.valueID
-                WHERE id3.itemID = i.itemID AND id3.fieldID = ]] .. FIELD_IDS.abstractNote .. [[
-                AND (dv3.value LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("dv3.value") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
-              )
-              OR EXISTS (
-                SELECT 1 FROM itemTags it3
-                JOIN tags t3 ON it3.tagID = t3.tagID
-                WHERE it3.itemID = i.itemID
-                AND (t3.name LIKE '%]] .. escaped .. [[%' OR ]] .. deaccent_sql("t3.name") .. [[ LIKE '%]] .. deaccented_escaped .. [[%')
-              )
-            )]]
-          end
-        end
-        where = where .. " AND (" .. table.concat(clauses, " AND ") .. ")"
+    if search_term and search_term ~= "" then
+      local clause = search_clause(search_term, dbfile)
+      if clause then
+        where = where .. " AND " .. clause
       end
     end
 
     local order = sort_order(sort_by, sort_dir)
 
     local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
-
-    local limit = limit_override or cfg().max_items
 
     local sql = [[
       SELECT i.itemID, i.itemTypeID, it.typeName, i.dateAdded,
@@ -766,14 +932,6 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       LIMIT ]] .. tostring(limit) .. [[
     ]]
 
-    local dbfile, key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
-      .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit)
-      .. "|" .. tostring(library_id) .. "|+" .. table.concat(include_types, ",")
-      .. "|-" .. table.concat(exclude_types, ",") .. "|#" .. table.concat(tags, "\31"))
-    local cached = cache_get(key)
-    if cached then
-      return cached
-    end
     local result = json_query(sql, dbfile)
     cache_set(key, result)
     return result

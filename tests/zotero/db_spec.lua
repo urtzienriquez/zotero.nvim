@@ -157,6 +157,91 @@ describe("db (against fixture sqlite db)", function()
       assert.equals(0, #items)
     end)
 
+    describe("query syntax", function()
+      local function ids(query)
+        local out = {}
+        for _, i in ipairs(await(db.get_items(nil, query, "dateAdded", "desc"))) do out[#out + 1] = i.itemID end
+        table.sort(out)
+        return out
+      end
+
+      it("OR (and |) matches either term, and binds tighter than AND", function()
+        assert.same({ 2, 3 }, ids("Microclimate OR Alcantara"))
+        assert.same({ 2, 3 }, ids("Microclimate | Alcantara"))
+        assert.same({ 3 }, ids("Population Microclimate OR Alcantara"))
+      end)
+
+      it("-term excludes, also for a short term and for items with empty fields", function()
+        assert.same({ 1, 5, 8 }, ids("-Microclimate -Alcantara"))
+        assert.same({ 2, 3, 5, 8 }, ids("-Da")) -- "Darwin", via the short-word path
+      end)
+
+      it("quoted phrases match only the exact phrase", function()
+        assert.same({ 1 }, ids('"Origin of Species"'))
+        assert.same({}, ids('"Species of Origin"'))
+      end)
+
+      it("matches DOI, citation key and the exact item key", function()
+        assert.same({ 2 }, ids("10.5555/micro.2019"))
+        assert.same({ 1 }, ids("darwin1859"))
+        assert.same({ 3 }, ids("art00003"))
+      end)
+
+      it("note: searches child notes and PDF annotations", function()
+        assert.same({ 5 }, ids("note:content")) -- item 6 is a child note of 5
+        assert.same({ 2 }, ids("note:treeline")) -- annotation text on item 2's PDF
+        assert.same({ 2 }, ids('note:"chapter three"')) -- annotation comment
+        assert.same({ 1, 3, 8 }, ids("-note:treeline -note:content"))
+        assert.same({}, ids("treeline")) -- not without the prefix
+      end)
+
+      it("field prefixes search only that field", function()
+        assert.same({ 2 }, ids("author:smith"))
+        assert.same({ 2 }, ids("author:niguez")) -- accent-insensitive
+        assert.same({ 2 }, ids('author:"jane smith"'))
+        assert.same({}, ids("title:smith"))
+        assert.same({ 1 }, ids("title:origin"))
+        assert.same({ 2 }, ids("pub:nature"))
+        assert.same({ 2 }, ids("abstract:biodiversity"))
+        assert.same({ 3 }, ids("tag:genetics"))
+        assert.same({ 2 }, ids("doi:micro"))
+        assert.same({ 1 }, ids("citekey:darwin"))
+        assert.same({}, ids("author:species"))
+      end)
+
+      it("year: takes a year or a range, open at either end", function()
+        assert.same({ 2 }, ids("year:2019"))
+        assert.same({ 2, 3 }, ids("year:2019-2020"))
+        assert.same({ 3, 5 }, ids("year:2020-"))
+        assert.same({ 1 }, ids("year:-1900"))
+      end)
+
+      it('author:"a OR b" matches either, and -author:"a OR b" neither', function()
+        assert.same({ 1, 2 }, ids('author:"darwin OR smith"'))
+        assert.same({ 1, 3 }, ids('author:"darwin | first"'))
+        assert.same({ 2, 3 }, ids('author:"charles darwin OR smith OR fifth" -title:origin'))
+        assert.same({ 3, 5, 8 }, ids('-author:"darwin OR smith"'))
+        assert.same({ 2 }, ids('author:"da OR jane smith" year:2019')) -- short word: fallback path
+      end)
+
+      it("ft: searches the full text of indexed PDFs", function()
+        local path = vim.fs.joinpath(vim.fs.dirname(fixture.db_path), "fulltext.sqlite")
+        os.remove(path)
+        local res = vim.system({ "sqlite3", path }, { text = true, stdin = [[
+          CREATE VIRTUAL TABLE fulltextContent USING fts5(text, tokenize='unicode61', content='');
+          INSERT INTO fulltextContent(rowid, text) VALUES (4, 'Alpine plants migrate upslope as the climate warms');
+        ]] }):wait()
+        assert.equals(0, res.code, res.stderr)
+        assert.same({ 2 }, ids("ft:upslope"))
+        assert.same({ 2 }, ids("ft:clim")) -- a bare word also matches as a prefix
+        assert.same({ 2 }, ids('ft:"climate warms"'))
+        assert.same({}, ids('ft:"warms climate"'))
+        assert.same({ 1, 3, 5, 8 }, ids("-ft:alpine"))
+        assert.same({ 2, 3 }, ids("ft:alpine OR genetics"))
+        os.remove(path)
+      end)
+    end)
+
     it("rejects a non-numeric collection_id defensively", function()
       assert.has_error(function()
         await(db.get_items("'; DROP TABLE items; --", "", "dateAdded", "desc"))
