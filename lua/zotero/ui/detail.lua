@@ -5,8 +5,8 @@ local async_mod = require("zotero.async")
 
 local float_win = nil
 local float_buf = nil
-local backdrop_win = nil
-local backdrop_buf = nil
+local backdrop_mod = require("zotero.ui.backdrop")
+local backdrop = nil
 local current_item_id = nil
 -- Bumped on every show_item() call so an in-flight render can detect it has
 -- been superseded even by a second call for the *same* item_id (e.g. rapid
@@ -225,22 +225,7 @@ function M.show_item(item_id, type_name_hint)
       return
     end
 
-    -- backdrop
-    backdrop_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[backdrop_buf].buftype = "nofile"
-    backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
-      relative = "editor",
-      width = vim.o.columns,
-      height = vim.o.lines,
-      row = 0,
-      col = 0,
-      style = "minimal",
-      border = "none",
-      zindex = 49,
-      focusable = false,
-    })
-    vim.wo[backdrop_win].winhl = "Normal:ZoteroDetailBackdrop"
-    vim.wo[backdrop_win].winblend = 60
+    backdrop = backdrop_mod.open()
 
     float_buf = vim.api.nvim_create_buf(false, true)
     vim.bo[float_buf].modifiable = true
@@ -282,14 +267,8 @@ function M.show_item(item_id, type_name_hint)
       buffer = float_buf,
       once = true,
       callback = function()
-        if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
-          vim.api.nvim_win_close(backdrop_win, true)
-          backdrop_win = nil
-        end
-        if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
-          vim.api.nvim_buf_delete(backdrop_buf, { force = true })
-          backdrop_buf = nil
-        end
+        backdrop_mod.close(backdrop)
+        backdrop = nil
       end,
     })
   end)
@@ -413,20 +392,14 @@ function M.wrap_text(text, width)
 end
 
 function M.close()
-  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
-    vim.api.nvim_win_close(backdrop_win, true)
-  end
-  if backdrop_buf and vim.api.nvim_buf_is_valid(backdrop_buf) then
-    vim.api.nvim_buf_delete(backdrop_buf, { force = true })
-  end
+  backdrop_mod.close(backdrop)
   if float_win and vim.api.nvim_win_is_valid(float_win) then
     vim.api.nvim_win_close(float_win, true)
   end
   if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
     vim.api.nvim_buf_delete(float_buf, { force = true })
   end
-  backdrop_win = nil
-  backdrop_buf = nil
+  backdrop = nil
   float_win = nil
   float_buf = nil
   current_item_id = nil

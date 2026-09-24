@@ -1,6 +1,16 @@
 local fixture = require("tests.helpers.fixture")
 local detail = require("zotero.ui.detail")
 
+local function backdrop_count()
+  local n = 0
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.wo[w].winhl:find("ZoteroDetailBackdrop", 1, true) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 describe("detail.wrap_text", function()
   it("wraps long text at word boundaries within width+10 of the target", function()
     local lines = detail.wrap_text("the quick brown fox jumps over the lazy dog and then some more words after that", 20)
@@ -73,8 +83,10 @@ describe("detail.show_item / close / is_open (real headless buffers/windows)", f
     detail.show_item(2)
     vim.wait(2000, function() return detail.is_open() end, 20)
     assert.is_true(detail.is_open())
+    assert.equals(1, backdrop_count())
     detail.close()
     assert.is_false(detail.is_open())
+    assert.equals(0, backdrop_count())
   end)
 
   it("a second show_item() call for the same item supersedes the first (no leaked window)", function()

@@ -8,6 +8,7 @@
 local M = {}
 
 local async_mod = require("zotero.async")
+local backdrop_mod = require("zotero.ui.backdrop")
 
 -- Whether `name` is currently shown under `filter`.
 function M.is_visible(filter, name)
@@ -64,7 +65,7 @@ function M.rows(counts, filter)
   return rows
 end
 
-local state = { buf = nil, win = nil, rows = {} }
+local state = { buf = nil, win = nil, rows = {}, backdrop = nil }
 
 local function render()
   local items = require("zotero.ui.items")
@@ -100,6 +101,8 @@ local function render()
 end
 
 function M.close()
+  backdrop_mod.close(state.backdrop)
+  state.backdrop = nil
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -147,6 +150,8 @@ function M.open()
   width = math.min(math.max(width, vim.fn.strdisplaywidth(footer)), vim.o.columns - 4)
   local height = math.min(#lines, vim.o.lines - 6)
 
+  -- Dim the rest of the screen, like the item preview does.
+  state.backdrop = backdrop_mod.open()
   state.win = vim.api.nvim_open_win(state.buf, true, {
     relative = "editor",
     width = width,

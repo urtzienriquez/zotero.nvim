@@ -3,6 +3,16 @@ local layout = require("zotero.ui.layout")
 local items = require("zotero.ui.items")
 local tf = require("zotero.ui.type_filter")
 
+local function backdrop_count()
+  local n = 0
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.wo[w].winhl:find("ZoteroDetailBackdrop", 1, true) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 describe("type_filter helpers", function()
   local none = { mode = "exclude", types = {} }
 
@@ -122,9 +132,19 @@ describe("type_filter checklist (real buffers, fixture db)", function()
     assert.same({ mode = "exclude", types = {} }, items.get_type_filter())
   end)
 
-  it("q closes the checklist", function()
+  it("dims the background while open, and q closes both", function()
     open_checklist()
+    assert.equals(1, backdrop_count())
     press("q")
     assert.is_false(tf.is_open())
+    assert.equals(0, backdrop_count())
+  end)
+
+  it("removes the backdrop when focus leaves the checklist", function()
+    open_checklist()
+    layout.focus_items()
+    vim.wait(1000, function() return not tf.is_open() end, 20)
+    assert.is_false(tf.is_open())
+    assert.equals(0, backdrop_count())
   end)
 end)
