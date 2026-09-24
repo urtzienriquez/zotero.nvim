@@ -8,7 +8,6 @@
 local M = {}
 
 local async_mod = require("zotero.async")
-local backdrop_mod = require("zotero.ui.backdrop")
 
 -- Whether `name` is currently shown under `filter`.
 function M.is_visible(filter, name)
@@ -65,65 +64,14 @@ function M.rows(counts, filter)
   return rows
 end
 
-local state = { buf = nil, win = nil, rows = {}, backdrop = nil }
-
-local function render()
-  local items = require("zotero.ui.items")
-  local filter = items.get_type_filter()
-  local name_w, count_w = 0, 0
-  for _, r in ipairs(state.rows) do
-    name_w = math.max(name_w, vim.fn.strdisplaywidth(r.name))
-    count_w = math.max(count_w, #tostring(r.count))
-  end
-  local lines = {}
-  for _, r in ipairs(state.rows) do
-    local box = M.is_visible(filter, r.name) and "[x]" or "[ ]"
-    lines[#lines + 1] = string.format(" %s %s  %s(%d) ", box, r.name .. string.rep(" ", name_w - vim.fn.strdisplaywidth(r.name)),
-      string.rep(" ", count_w - #tostring(r.count)), r.count)
-  end
-  if #lines == 0 then
-    lines = { "  (no items in this view)" }
-  end
-
-  vim.bo[state.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
-  vim.bo[state.buf].modifiable = false
-
-  local ns = vim.api.nvim_create_namespace("zotero-type-filter")
-  vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
-  for i, r in ipairs(state.rows) do
-    local visible = M.is_visible(filter, r.name)
-    vim.api.nvim_buf_add_highlight(state.buf, ns, visible and "ZoteroItemMarker" or "ZoteroItemCount", i - 1, 1, 4)
-    vim.api.nvim_buf_add_highlight(state.buf, ns, visible and "ZoteroItemTitle" or "ZoteroItemCount", i - 1, 5, 5 + #r.name)
-    vim.api.nvim_buf_add_highlight(state.buf, ns, "ZoteroItemCount", i - 1, 5 + name_w, -1)
-  end
-  return lines
-end
+local checklist = require("zotero.ui.checklist")
 
 function M.close()
-  backdrop_mod.close(state.backdrop)
-  state.backdrop = nil
-  if state.win and vim.api.nvim_win_is_valid(state.win) then
-    vim.api.nvim_win_close(state.win, true)
-  end
-  state.win = nil
-  if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
-    vim.api.nvim_buf_delete(state.buf, { force = true })
-  end
-  state.buf = nil
+  checklist.close("type_filter")
 end
 
 function M.is_open()
-  return state.win ~= nil and vim.api.nvim_win_is_valid(state.win)
-end
-
-local function apply(new_filter)
-  require("zotero.ui.items").set_type_filter(new_filter.mode, new_filter.types)
-  render()
-end
-
-local function row_under_cursor()
-  return state.rows[vim.api.nvim_win_get_cursor(state.win)[1]]
+  return checklist.is_open("type_filter")
 end
 
 -- Opens the checklist for the current view. Must be called from inside an
@@ -134,67 +82,27 @@ function M.open()
   local counts = async_mod.await(require("zotero.db").get_type_counts(ctx.collection_id, ctx.library_id)) or {}
   async_mod.to_main()
 
-  M.close()
-  state.rows = M.rows(counts, items.get_type_filter())
-
-  state.buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.buf].bufhidden = "wipe"
-  vim.bo[state.buf].filetype = "zotero-type-filter"
-  local lines = render()
-
-  local width = 20
-  for _, l in ipairs(lines) do
-    width = math.max(width, vim.fn.strdisplaywidth(l))
+  local function apply(filter)
+    items.set_type_filter(filter.mode, filter.types)
   end
-  local footer = " <CR> toggle · o only · a all · q close · g? help "
-  width = math.min(math.max(width, vim.fn.strdisplaywidth(footer)), vim.o.columns - 4)
-  local height = math.min(#lines, vim.o.lines - 6)
-
-  -- Dim the rest of the screen, like the item preview does.
-  state.backdrop = backdrop_mod.open()
-  state.win = vim.api.nvim_open_win(state.buf, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
+  checklist.open({
+    id = "type_filter",
     title = " Item types ",
-    title_pos = "center",
-    footer = footer,
-    footer_pos = "center",
-    zindex = 50,
-  })
-  vim.wo[state.win].cursorline = true
-
-  local function map(lhs, fn, desc)
-    vim.keymap.set("n", lhs, fn, { buffer = state.buf, silent = true, nowait = true, desc = desc })
-  end
-  local function on_row(fn)
-    return function()
-      local row = row_under_cursor()
-      if row then
-        apply(fn(items.get_type_filter(), row.name))
-      end
-    end
-  end
-  map("<CR>", on_row(M.toggle), "toggle type")
-  map("<Space>", on_row(M.toggle), "toggle type")
-  map("o", on_row(function(_, name) return M.only(name) end), "show only this type")
-  map("a", function() apply(M.all()) end, "show all types")
-  map("q", M.close, "close")
-  map("g?", function()
-    M.close()
-    vim.cmd.help("zotero-type-filter")
-  end, "open help")
-  map("<Esc>", M.close, "close")
-
-  vim.api.nvim_create_autocmd("WinLeave", {
-    buffer = state.buf,
-    once = true,
-    callback = function()
-      vim.schedule(M.close)
+    filetype = "zotero-type-filter",
+    help_tag = "zotero-type-filter",
+    empty_text = "  (no items in this view)",
+    rows = M.rows(counts, items.get_type_filter()),
+    is_checked = function(row)
+      return M.is_visible(items.get_type_filter(), row.name)
+    end,
+    on_toggle = function(row)
+      apply(M.toggle(items.get_type_filter(), row.name))
+    end,
+    on_only = function(row)
+      apply(M.only(row.name))
+    end,
+    on_all = function()
+      apply(M.all())
     end,
   })
 end

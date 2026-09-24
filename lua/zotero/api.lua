@@ -199,7 +199,10 @@ end
 -- Returns (ok, parsed_or_error_message). The payload goes through a temp
 -- file (--data-binary @file) so big bodies such as OPML files don't hit the
 -- OS argv length limit.
-local function post_feed_endpoint(path, body)
+local function post_feed_endpoint(path, body, min_version)
+  -- Callers may get here right after an await that resumed in a fast
+  -- (libuv) context, where vim.fn.tempname() raises E5560.
+  async_mod.to_main()
   local tmp = vim.fn.tempname()
   local fd = assert(io.open(tmp, "wb"))
   fd:write(async_mod.json_encode(body))
@@ -219,12 +222,62 @@ local function post_feed_endpoint(path, body)
   local ok, parsed = pcall(async_mod.json_decode, res.body)
   parsed = ok and type(parsed) == "table" and parsed or nil
   if res.http_code == 404 and not parsed then
-    return false, "endpoint not found -- update the zotero.nvim companion plugin to 1.2.1+"
+    return false, "endpoint not found -- update the zotero.nvim companion plugin to " .. (min_version or "1.2.1") .. "+"
   end
   if res.http_code ~= 200 or not parsed or not parsed.success then
     return false, (parsed and parsed.error) or ("HTTP " .. tostring(res.http_code))
   end
   return true, parsed
+end
+
+-- Toggles `tag` on the items (user library keys) the way Zotero's
+-- colored-tag keys do: removed from all if every item has it, else added to
+-- all. Returns (true, added) on success, false after notifying on failure.
+function M.toggle_tag(item_keys, tag)
+  return m_run("toggle_tag", function()
+    local ok, res = post_feed_endpoint("/connector/toggleTag", { itemKeys = item_keys, tag = tag }, "1.3.0")
+    if not ok then
+      async_mod.notify("zotero: toggling tag '" .. tag .. "' failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    local n = tonumber(res.count) or #item_keys
+    async_mod.notify(("zotero: %s tag '%s' %s %d item(s)"):format(
+      res.added and "added" or "removed", tag, res.added and "to" or "from", n), vim.log.levels.INFO)
+    return true, res.added == true
+  end)
+end
+
+-- Sets tag `tag`'s colour ("#RRGGBB") and number key `position` (1-9,
+-- optional), or removes its colour when `color` is nil. Returns true/false.
+function M.set_tag_color(tag, color, position)
+  return m_run("set_tag_color", function()
+    local ok, res = post_feed_endpoint("/connector/setTagColor",
+      { tag = tag, color = color or vim.NIL, position = position }, "1.4.0")
+    if not ok then
+      async_mod.notify("zotero: setting the colour of '" .. tag .. "' failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    async_mod.notify(color and ("zotero: tag '%s' is now colored tag %s"):format(tag, tostring(position or "?"))
+      or ("zotero: removed the colour of tag '%s'"):format(tag), vim.log.levels.INFO)
+    return true
+  end)
+end
+
+-- Deletes tag `tag` from every item in the user library. Returns true/false.
+-- opts.quiet: no success message (errors are always shown).
+function M.delete_tag(tag, opts)
+  opts = opts or {}
+  return m_run("delete_tag", function()
+    local ok, res = post_feed_endpoint("/connector/deleteTag", { tag = tag }, "1.4.0")
+    if not ok then
+      async_mod.notify("zotero: deleting tag '" .. tag .. "' failed: " .. res, vim.log.levels.ERROR)
+      return false
+    end
+    if not opts.quiet then
+      async_mod.notify("zotero: deleted tag '" .. tag .. "'", vim.log.levels.INFO)
+    end
+    return true
+  end)
 end
 
 -- Subscribes to an RSS/Atom feed. `name` is optional (defaults to the feed's

@@ -309,6 +309,143 @@ describe("items (real buffers, fixture db)", function()
     end)
   end)
 
+  describe("tags", function()
+    local api = require("zotero.api")
+    local orig_toggle, calls, notes, orig_notify
+
+    local function text()
+      return table.concat(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false), "\n")
+    end
+
+    local function line_of(pattern)
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do
+        if l:match(pattern) then return i end
+      end
+    end
+
+    before_each(function()
+      calls, notes = {}, {}
+      orig_toggle = api.toggle_tag
+      api.toggle_tag = function(keys, tag)
+        table.sort(keys)
+        calls[#calls + 1] = { keys = keys, tag = tag }
+        return require("zotero.async").run("mock", function() return false end) -- skip the re-render
+      end
+      local async_mod = require("zotero.async")
+      orig_notify = async_mod.notify
+      async_mod.notify = function(msg, ...)
+        notes[#notes + 1] = msg
+        return orig_notify(msg, ...)
+      end
+      items.set_tag_filter({})
+      fetch_sync()
+      -- Wait for the full, unfiltered library (5 items): a render triggered by
+      -- the previous test can still be landing, and the line numbers below
+      -- must match what the keys act on.
+      vim.wait(3000, function()
+        local bar = vim.wo[layout.get_items_win()].winbar
+        return bar:match(" 5 items") ~= nil and not bar:match("tags:") and not bar:match("types:")
+      end, 20)
+      layout.focus_items()
+    end)
+
+    after_each(function()
+      api.toggle_tag = orig_toggle
+      require("zotero.async").notify = orig_notify
+      items.set_tag_filter({})
+    end)
+
+    it("shows a coloured dot for each colored tag an item has, and its colour wins", function()
+      local line = line_of("Microclimate")
+      assert.matches("● Microclimate", text())
+      local dot_col = vim.api.nvim_buf_get_lines(layout.get_items_buf(), line - 1, line, false)[1]:find("●", 1, true) - 1
+      -- Of all highlights covering the dot, the one with the highest priority
+      -- is what's shown: it must be the tag colour, not the title's.
+      local ns = vim.api.nvim_create_namespace("zotero-items-hl")
+      local top, top_priority = nil, -1
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(layout.get_items_buf(), ns, { line - 1, 0 }, { line - 1, -1 }, { details = true })) do
+        local d = m[4]
+        local end_col = d.end_col or math.huge
+        if d.hl_group and m[3] <= dot_col and dot_col < end_col and (d.priority or 0) > top_priority then
+          top, top_priority = d.hl_group, d.priority or 0
+        end
+      end
+      assert.equals("ZoteroTagColor1", top) -- ecology = colored tag 1
+      assert.equals("#ff6666", string.format("#%06x", vim.api.nvim_get_hl(0, { name = "ZoteroTagColor1" }).fg))
+    end)
+
+    it("reports an error from a tag action instead of failing silently", function()
+      api.toggle_tag = function() error("boom from the connector", 0) end
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Origin of Species"), 0 })
+      feed("t1")
+      vim.wait(2000, function()
+        for _, n in ipairs(notes) do
+          if n:match("tag action failed") then return true end
+        end
+      end, 20)
+      local found = false
+      for _, n in ipairs(notes) do
+        if n:match("tag action failed: boom from the connector") then found = true end
+      end
+      assert.is_true(found)
+    end)
+
+    it("t1 toggles colored tag 1 on the item under the cursor", function()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Origin of Species"), 0 })
+      feed("t1")
+      vim.wait(2000, function() return #calls == 1 end, 20)
+      assert.same({ keys = { "BOOK0001" }, tag = "ecology" }, calls[1])
+    end)
+
+    it("t2 in visual mode toggles colored tag 2 on every selected item", function()
+      -- The first two rows, whatever the current sort order (earlier tests
+      -- change it); expected keys come from the titles on those rows.
+      local key_of_title = { Population = "ART00003", Origin = "BOOK0001", Microclimate = "ART00002",
+        Field = "DOC00005", ["no title"] = "PLAIN008" }
+      local lines = vim.api.nvim_buf_get_lines(layout.get_items_buf(), 2, 4, false)
+      local expected = {}
+      for _, l in ipairs(lines) do
+        for word, key in pairs(key_of_title) do
+          if l:find(word, 1, true) then expected[#expected + 1] = key end
+        end
+      end
+      table.sort(expected)
+      assert.equals(2, #expected)
+
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { 3, 0 })
+      feed("Vjt2")
+      vim.wait(2000, function() return #calls == 1 end, 20)
+      assert.same({ keys = expected, tag = "genetics" }, calls[1])
+    end)
+
+    it("t3 without a third colored tag explains where to assign one and sends nothing", function()
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Origin of Species"), 0 })
+      feed("t3")
+      vim.wait(1000, function() return #notes > 0 end, 20)
+      assert.same({}, calls)
+      assert.matches("no colored tag 3", notes[#notes])
+    end)
+
+    it("refuses to toggle tags on feed items", function()
+      items.load_feed(2, "Journal RSS")
+      vim.wait(3000, function() return text():match("Feed article") ~= nil end, 20)
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { 1, 0 })
+      feed("t1")
+      vim.wait(300, function() return false end, 20)
+      assert.same({}, calls)
+      items.load_items(nil)
+    end)
+
+    it("the tag filter survives switching collection and shows in the winbar", function()
+      items.set_tag_filter({ "ecology" })
+      vim.wait(3000, function() return not text():match("Origin") end, 20)
+      items.load_items(1) -- Root A has items 1 and 2; only 2 has "ecology"
+      vim.wait(3000, function() return text():match("Microclimate") ~= nil end, 20)
+      assert.does_not.match("Origin", text())
+      assert.matches("tags: ecology", vim.wo[layout.get_items_win()].winbar)
+    end)
+  end)
+
   describe("yank keys", function()
     local function line_of(pattern)
       for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do

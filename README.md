@@ -28,6 +28,10 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
   only that type, `a` shows all types again, `q` closes. The list updates as
   you go, and the filter stays on when you switch collections or feeds.
 - Read-only Feeds section with unread counts (feed items never mix into My Library)
+- Tags like in Zotero: `t1`–`t9` toggle your Zotero colored tags on the item(s)
+  (coloured ● dots show them in the list), `tt` opens a checklist to add or remove
+  several tags at once (`cc` assigns a colour, `dd` deletes a tag), and `fT` or the
+  Tags section of the collections pane filter the list by tag
 - PDF import via Zotero Connector API with duplicate detection
 - Add items by identifier (DOI, ISBN, PMID, arXiv)
 - Add PDF attachments to existing items
@@ -157,6 +161,9 @@ require("zotero").setup({
     items_search             = "ff",   -- f: filter
     items_clear_search       = "fc",
     items_filter_type        = "ft",
+    items_filter_tag         = "fT",
+    items_toggle_colored_tag = "t",    -- t1..t9: Zotero colored tag N
+    items_toggle_tag         = "tt",
     items_toggle_columns     = "tv",   -- t: toggle view
     items_toggle_collections = "tc",
     toggle_statuscolumn      = "ts",
@@ -183,6 +190,7 @@ require("zotero").setup({
     collections_focus_items_esc = "<Esc>",
     collections_new             = "aa",
     collections_delete          = "dd",
+    collections_tag_colour      = "cc",
     collections_refresh         = "R",
     collections_toggle_pane     = "tc",
     collections_show_help       = "g?",
@@ -212,7 +220,7 @@ navigation. Every key can be remapped; see
 
 ### Collections Pane
 
-My Library and Feeds are foldable sections: My Library starts open with its collections underneath, Feeds starts folded. `za` opens or closes the section (or collection) under the cursor.
+My Library, Feeds and Tags are foldable sections: My Library starts open with its collections underneath, Feeds and Tags start folded. `za` opens or closes the section (or collection) under the cursor. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (the cursor stays in the pane, so you can combine tags).
 
 | Key               | Action                                                     |
 | ----------------- | ---------------------------------------------------------- |
@@ -222,7 +230,8 @@ My Library and Feeds are foldable sections: My Library starts open with its coll
 | `za`              | Open/close My Library, Feeds, or the collection under the cursor (without loading items) |
 | `<Tab>` / `<Esc>` | Focus items pane                                           |
 | `aa`              | Add a collection (on Feeds or a feed: add a feed)          |
-| `dd`              | Trash the collection (on a feed: unsubscribe)              |
+| `dd`              | Trash the collection (on a feed: unsubscribe; on a tag: delete it from all items; on a visual selection of tags: delete them all) |
+| `cc`              | On a tag: assign/remove its colour and number key (1–9), like Zotero's "Assign Colour…" |
 | `R`               | Refresh (on a feed: fetch new items; on Feeds: all feeds)  |
 | `tc` / `ts`       | Toggle collections pane / statuscolumn                     |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked items / Trash          |
@@ -249,6 +258,9 @@ My Library and Feeds are foldable sections: My Library starts open with its coll
 | `st` / `sy` / `sd` | Sort by title / year / date added (again: reverse) |
 | `ff` / `fc` | Search / clear search                                   |
 | `ft`        | Item-type checklist (show/hide types, with counts)      |
+| `fT`        | Tag checklist: show only items with the checked tags    |
+| `t1`…`t9`   | Toggle Zotero colored tag 1–9 on the item(s) (visual selection too) |
+| `tt`        | Checklist of the item(s)' tags: add/remove several at once, `n` for a new one |
 | `tv`        | Toggle column preset (configured/compact/normal/full)   |
 | `tc` / `ts` | Toggle collections pane / statuscolumn                  |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked only / Trash  |
@@ -336,7 +348,8 @@ from the library's. Otherwise feed items are read-only (to keep one, add it
 with Zotero itself or `an` by DOI).
 
 Adding, removing and refreshing feeds and read/unread need version 1.2.1 or
-later of the companion plugin (see below). Without it,
+later of the companion plugin (see below); toggling tags (`t1`–`t9`, `tt`)
+needs 1.3.0 or later, and colouring / deleting tags (`cc`, `dd`) 1.4.0. Without it,
 browsing and opening feed items still work but nothing is marked read.
 
 ## PDF Import & Duplicate Detection

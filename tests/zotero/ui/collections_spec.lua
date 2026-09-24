@@ -28,6 +28,13 @@ describe("collections (real buffers, fixture db)", function()
     -- Section fold state is module-level; start every test from the defaults.
     collections.set_section_open("library", true)
     collections.set_section_open("feeds", false)
+    collections.set_section_open("tags", false)
+    -- Only when needed: set_tag_filter() starts an items reload, which would
+    -- race tests that edit the fixture db directly.
+    local items = require("zotero.ui.items")
+    if #items.get_tag_filter() > 0 then
+      items.set_tag_filter({})
+    end
   end)
 
   after_each(function()
@@ -184,6 +191,29 @@ describe("collections (real buffers, fixture db)", function()
       press_on("Feeds %(", "za")
       assert.matches("▶ Feeds", text())
       assert.does_not.match("Journal RSS", text())
+    end)
+
+    it("has a Tags section, folded by default, with colored tags first", function()
+      render_sync()
+      assert.matches("▶ Tags %(2%)", text())
+      assert.does_not.match("ecology", text())
+      press_on("Tags %(", "<CR>")
+      assert.matches("▼ Tags", text())
+      assert.matches("1 ● ecology %(1%)", text())
+      assert.matches("2 ● genetics %(1%)", text())
+    end)
+
+    it("<CR> on a tag filters the items by it, marks it, and keeps focus here", function()
+      render_sync()
+      local items = require("zotero.ui.items")
+      collections.set_section_open("tags", true)
+      press_on("ecology", "<CR>")
+      assert.same({ "ecology" }, items.get_tag_filter())
+      assert.matches("✓ 1 ● ecology", text())
+      assert.equals(layout.get_collections_win(), vim.api.nvim_get_current_win())
+      press_on("ecology", "<CR>") -- again: removed from the filter
+      assert.same({}, items.get_tag_filter())
+      assert.does_not.match("✓", text())
     end)
 
     it("za on a collection with children folds it without selecting it", function()

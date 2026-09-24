@@ -49,6 +49,11 @@ M.defaults = {
     items_search = "ff",
     items_clear_search = "fc",
     items_filter_type = "ft",
+    -- tags: t1..t9 toggle Zotero's colored tag N (this is the prefix), tt
+    -- toggles any tag, fT filters by tag
+    items_toggle_colored_tag = "t",
+    items_toggle_tag = "tt",
+    items_filter_tag = "fT",
     -- t: toggle view (tc/ts work in the collections pane too)
     items_toggle_columns = "tv",
     items_toggle_collections = "tc",
@@ -79,6 +84,7 @@ M.defaults = {
     collections_focus_items_esc = "<Esc>",
     collections_new = "aa",
     collections_delete = "dd",
+    collections_tag_colour = "cc",
     collections_refresh = "R",
     collections_toggle_pane = "tc",
     collections_show_help = "g?",

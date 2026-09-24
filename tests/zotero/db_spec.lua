@@ -427,6 +427,45 @@ describe("db (against fixture sqlite db)", function()
     end)
   end)
 
+  describe("tags", function()
+    local function ids_of(items)
+      local ids = {}
+      for _, i in ipairs(items) do ids[#ids + 1] = i.itemID end
+      table.sort(ids)
+      return ids
+    end
+
+    it("get_colored_tags returns Zotero's colored tags in key order", function()
+      assert.same({
+        { name = "ecology", color = "#FF6666" },
+        { name = "genetics", color = "#5FB236" },
+      }, await(db.get_colored_tags()))
+    end)
+
+    it("get_items filters by a tag, and by several tags with AND", function()
+      assert.same({ 2 }, ids_of(await(db.get_items(nil, "", "dateAdded", "desc", nil, { tags = { "ecology" } }))))
+      assert.same({}, ids_of(await(db.get_items(nil, "", "dateAdded", "desc", nil, { tags = { "ecology", "genetics" } }))))
+    end)
+
+    it("get_tag_counts counts per view and leaves out trashed items", function()
+      local function as_map(rows)
+        local m = {}
+        for _, r in ipairs(rows) do m[r.name] = r.count end
+        return m
+      end
+      -- library: ecology (item 2), genetics (item 3); "draft" is only on trashed item 7
+      assert.same({ ecology = 1, genetics = 1 }, as_map(await(db.get_tag_counts(nil, nil))))
+      assert.same({ ecology = 1 }, as_map(await(db.get_tag_counts(1, nil)))) -- Root A: items 1, 2
+    end)
+
+    it("get_items_tags maps items to the requested tags they have", function()
+      local map = await(db.get_items_tags({ 1, 2, 3 }, { "ecology", "genetics" }))
+      assert.same({ ecology = true }, map[2])
+      assert.same({ genetics = true }, map[3])
+      assert.is_nil(map[1])
+    end)
+  end)
+
   describe("item type filter", function()
     local function ids_of(items)
       local ids = {}

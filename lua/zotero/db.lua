@@ -648,6 +648,13 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     if #exclude_types > 0 then
       where = where .. " AND it.typeName NOT IN " .. type_list(exclude_types)
     end
+    -- Tag filter: the item must have every listed tag (Zotero's tag-selector
+    -- logic).
+    local tags = opts.tags or {}
+    for _, tag in ipairs(tags) do
+      where = where .. " AND i.itemID IN (SELECT itg.itemID FROM itemTags itg JOIN tags tg ON itg.tagID = tg.tagID"
+        .. " WHERE tg.name = '" .. types.escape_sql(tag) .. "')"
+    end
 
     if collection_id then
       where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
@@ -762,7 +769,7 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
     local dbfile, key = cache_key("items|" .. tostring(collection_id) .. "|" .. tostring(search_term)
       .. "|" .. tostring(sort_by) .. "|" .. tostring(sort_dir) .. "|" .. tostring(limit)
       .. "|" .. tostring(library_id) .. "|+" .. table.concat(include_types, ",")
-      .. "|-" .. table.concat(exclude_types, ","))
+      .. "|-" .. table.concat(exclude_types, ",") .. "|#" .. table.concat(tags, "\31"))
     local cached = cache_get(key)
     if cached then
       return cached
@@ -881,6 +888,57 @@ function M.get_item_authors(item_id)
       ORDER BY ic.orderIndex
     ]]
     return json_query(sql)
+  end)
+end
+
+-- Zotero's colored tags ("Assign Colour" in its tag selector): a list of
+-- { name, color } for the user library, in key order (1-9). Stored by Zotero
+-- as JSON in syncedSettings.tagColors.
+function M.get_colored_tags()
+  return async_mod.run("zotero:db.get_colored_tags", function()
+    local dbfile, key = cache_key("colored_tags")
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
+    local rows = json_query("SELECT value FROM syncedSettings WHERE setting = 'tagColors' AND "
+      .. in_library(nil, user_library_id()), dbfile)
+    local result = {}
+    local ok, list = pcall(async_mod.json_decode, rows[1] and rows[1].value or "[]")
+    if ok and type(list) == "table" then
+      for _, t in ipairs(list) do
+        if type(t) == "table" and type(t.name) == "string" and #result < 9 then
+          result[#result + 1] = { name = t.name, color = type(t.color) == "string" and t.color or nil }
+        end
+      end
+    end
+    cache_set(key, result)
+    return result
+  end)
+end
+
+-- Which of `names` each of `item_ids` has: itemID -> { name = true, ... }.
+-- One query for the whole visible list (used for the colored-tag dots).
+function M.get_items_tags(item_ids, names)
+  return async_mod.run("zotero:db.get_items_tags", function()
+    if not item_ids or #item_ids == 0 or not names or #names == 0 then
+      return {}
+    end
+    local ids = table.concat(vim.tbl_map(sql_int, item_ids), ",")
+    local sql = "SELECT itg.itemID, tg.name FROM itemTags itg JOIN tags tg ON itg.tagID = tg.tagID"
+      .. " WHERE itg.itemID IN (" .. ids .. ") AND tg.name IN " .. type_list(names)
+    local dbfile, key = cache_key("items_tags|" .. ids .. "|" .. table.concat(names, "\31"))
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
+    local map = {}
+    for _, r in ipairs(json_query(sql, dbfile)) do
+      map[r.itemID] = map[r.itemID] or {}
+      map[r.itemID][r.name] = true
+    end
+    cache_set(key, map)
+    return map
   end)
 end
 
@@ -1133,6 +1191,38 @@ end
 -- Item counts per itemTypes.typeName for a view (a collection, a feed's
 -- library via library_id, or the whole user library), ignoring any type
 -- filter. Feeds the item-type checklist (ft).
+-- Tags with item counts (top-level, non-trashed items) for a view: a
+-- collection, a feed's library via library_id, or (both nil) the whole user
+-- library. Used by the Tags section and the fT checklist.
+function M.get_tag_counts(collection_id, library_id)
+  return async_mod.run("zotero:db.get_tag_counts", function()
+    local lib = library_id or user_library_id()
+    local join = collection_id and "JOIN collectionItems ci ON i.itemID = ci.itemID" or ""
+    local where = not_child("i") .. " AND " .. not_trashed() .. " AND " .. in_library("i", lib)
+    if collection_id then
+      where = where .. " AND ci.collectionID = " .. sql_int(collection_id)
+    end
+    local dbfile, key = cache_key("tag_counts|" .. tostring(collection_id) .. "|" .. tostring(lib))
+    local cached = cache_get(key)
+    if cached then
+      return cached
+    end
+    local sql = [[
+      SELECT tg.name, COUNT(DISTINCT i.itemID) AS count
+      FROM items i
+      JOIN itemTags itg ON itg.itemID = i.itemID
+      JOIN tags tg ON tg.tagID = itg.tagID
+      ]] .. join .. [[
+      WHERE ]] .. where .. [[
+      GROUP BY tg.name
+      ORDER BY tg.name COLLATE NOCASE
+    ]]
+    local result = json_query(sql, dbfile)
+    cache_set(key, result)
+    return result
+  end)
+end
+
 function M.get_type_counts(collection_id, library_id)
   return async_mod.run("zotero:db.get_type_counts", function()
     local lib = library_id or user_library_id()

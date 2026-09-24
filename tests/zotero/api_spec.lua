@@ -130,6 +130,65 @@ describe("api (mocked connector)", function()
       assert.matches("companion plugin to 1%.2%.1", msgs[1])
     end)
 
+    it("toggle_tag posts the item keys and tag, and reports whether it was added", function()
+      mock_http(ok({ added = true, count = 2 }))
+      local done, added = run(api.toggle_tag({ "K1", "K2" }, "to-read"))
+      assert.is_true(done)
+      assert.is_true(added)
+      assert.matches("/connector/toggleTag$", captured_url)
+      assert.same({ itemKeys = { "K1", "K2" }, tag = "to-read" }, captured_body)
+    end)
+
+    -- Regression: t1/tt call toggle_tag right after awaiting db queries, which
+    -- on nightly resume in a fast (libuv) context, where vim.fn.tempname()
+    -- raises E5560 -- the toggle then silently did nothing.
+    it("toggle_tag works when called right after an await that resumed in a fast context", function()
+      mock_http(ok({ added = true, count = 1 }))
+      local done = run(async_mod.run("t", function()
+        async_mod.sys({ "true" }) -- resumes from vim.system's callback
+        return async_mod.await(api.toggle_tag({ "K1" }, "to-read"))
+      end))
+      assert.is_true(done)
+      assert.same({ itemKeys = { "K1" }, tag = "to-read" }, captured_body)
+    end)
+
+    it("set_tag_color sends the colour and number key, or null to remove it", function()
+      mock_http(ok({}))
+      assert.is_true(run(api.set_tag_color("to-read", "#2EA8E5", 3)))
+      assert.matches("/connector/setTagColor$", captured_url)
+      assert.same({ tag = "to-read", color = "#2EA8E5", position = 3 }, captured_body)
+
+      mock_http(ok({}))
+      assert.is_true(run(api.set_tag_color("to-read", nil)))
+      assert.equals(vim.NIL, captured_body.color)
+    end)
+
+    it("delete_tag sends the tag and asks for companion plugin 1.4.0 when missing", function()
+      mock_http(ok({}))
+      assert.is_true(run(api.delete_tag("old")))
+      assert.matches("/connector/deleteTag$", captured_url)
+      assert.same({ tag = "old" }, captured_body)
+
+      mock_http({ code = 0, http_code = 404, body = "No endpoint found" })
+      local msgs = {}
+      local orig_notify = async_mod.notify
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      assert.is_false(run(api.delete_tag("old")))
+      async_mod.notify = orig_notify
+      assert.matches("companion plugin to 1%.4%.0", msgs[1])
+    end)
+
+    it("toggle_tag asks for companion plugin 1.3.0 when the endpoint is missing", function()
+      mock_http({ code = 0, http_code = 404, body = "No endpoint found" })
+      local msgs = {}
+      local orig_notify = async_mod.notify
+      async_mod.notify = function(m) msgs[#msgs + 1] = m end
+      local done = run(api.toggle_tag({ "K1" }, "x"))
+      async_mod.notify = orig_notify
+      assert.is_false(done)
+      assert.matches("companion plugin to 1%.3%.0", msgs[1])
+    end)
+
     it("delete_feed and refresh_feeds send the feed's libraryID", function()
       mock_http(ok({ name = "X" }))
       assert.is_true(run(api.delete_feed(2)))

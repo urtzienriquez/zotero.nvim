@@ -119,6 +119,9 @@ CONFIGURATION                                            *zotero-config*
         items_search             = "ff",   -- f: filter
         items_clear_search       = "fc",
         items_filter_type        = "ft",
+        items_filter_tag         = "fT",
+        items_toggle_colored_tag = "t",    -- t1..t9: colored tag N
+        items_toggle_tag         = "tt",
         items_toggle_columns     = "tv",   -- t: toggle view
         items_toggle_collections = "tc",
         toggle_statuscolumn      = "ts",
@@ -145,6 +148,7 @@ CONFIGURATION                                            *zotero-config*
         collections_focus_items_esc = "<Esc>",
         collections_new             = "aa",
         collections_delete          = "dd",
+        collections_tag_colour      = "cc",
         collections_refresh         = "R",
         collections_toggle_pane     = "tc",
         collections_show_help       = "g?",
@@ -270,6 +274,57 @@ Item-type checklist~                                    *zotero-type-filter*
     q / <Esc>       Close
     g?              Open this help
 
+Tags~                                                          *zotero-tags*
+  Tags work like in Zotero's own item list:
+  - Colored tags: the tags you give a colour in Zotero (right-click a tag
+    in Zotero's tag selector → Assign Colour…) get numbers 1-9 in that
+    order. `t1`…`t9` toggle colored tag N on the item under the cursor or
+    on a visual selection: if every selected item has it, it is removed
+    from all of them, otherwise added to all. Items show a coloured ● per
+    colored tag before their title.
+  - `tt` opens a checklist of all tags showing which ones the item(s)
+    have, to add or remove several at once (see |zotero-tag-assign|).
+  - `fT` filters the items list by tag (see |zotero-tag-filter|); the
+    collections pane has a Tags section (folded by default) where <CR> on
+    a tag adds it to / removes it from that same filter.
+  - `cc` on a tag (in the Tags section or the `tt` window) assigns or
+    removes its colour and number key, like "Assign Colour…" in Zotero:
+    pick one of Zotero's 9 colours, then its number (1-9). Zotero allows
+    at most 9 colored tags.
+  - `dd` on a tag deletes it from every item in your library, after
+    asking, like "Delete Tag…" in Zotero. On a visual selection of tags
+    (`V` + `j`/`k`, then `dd`) it deletes all of them after one question.
+  Toggling tags needs companion plugin 1.3.0 or later, and `cc` / `dd`
+  need 1.4.0 (|zotero-companion-plugin|); dots and filtering work without
+  it. Feed items are read-only.
+
+Item tags checklist~                                     *zotero-tag-assign*
+  `tt` opens a floating checklist of all tags for the item under the
+  cursor, or for every item in a visual selection: [x] the item(s) have
+  the tag, [ ] they don't, [~] only some of the selected items do (Zotero's
+  colored tags come first). Changes are applied in Zotero straight away,
+  so you can add and remove several tags in one go:
+    <CR> / <Space>  Add or remove the tag under the cursor ([~]: add it
+                    to all selected items)
+    n               Add a new tag
+    cc              Assign/remove the colour of the tag under the cursor
+    dd              Delete the tag under the cursor (or all tags in a
+                    visual selection) from all items
+    q / <Esc>       Close
+    g?              Open this help
+
+Tag checklist~                                           *zotero-tag-filter*
+  `fT` opens a floating checklist of the tags in the current view, with
+  item counts; Zotero's colored tags come first with their number. Checked
+  tags are required: only items that have all of them are listed (like
+  selecting several tags in Zotero's tag selector). The filter stays on
+  when you switch collections or feeds and shows in the winbar:
+    <CR> / <Space>  Require / stop requiring the tag under the cursor
+    o               Require only the tag under the cursor
+    a               Clear the tag filter
+    q / <Esc>       Close
+    g?              Open this help
+
 Detail Panel~
   Shows full metadata for the selected item, including abstract,
   tags, notes, and attachments. Press |q| or |<Esc>| to close.
@@ -302,9 +357,14 @@ Collections Pane~                                  *zotero-collections-maps*
   <CR>            Select collection, feed, Marked or Trash (loads items);
                   on a collection with children, also expand/collapse;
                   on the Feeds header, open/close Feeds
-  za              Open/close My Library, Feeds, or the collection under
-                  the cursor, without loading any items. My Library
-                  starts open, Feeds starts folded.
+  za              Open/close My Library, Feeds, Tags, or the collection
+                  under the cursor, without loading any items. My Library
+                  starts open, Feeds and Tags start folded.
+  <CR> on a tag   Add it to / remove it from the tag filter (focus stays
+                  here, so several tags can be combined; see |zotero-tags|)
+  cc on a tag     Assign/remove its colour and number key (1-9)
+  dd on a tag     Delete it from all items (asks first); on a visual
+                  selection of tags, delete all of them
   <Tab> / <Esc>   Focus items pane
   aa              Add a collection (on Feeds or a feed: add a feed)
   dd              Trash the collection (on a feed: unsubscribe)
@@ -360,12 +420,17 @@ Filter~                                           *zotero-items-filter-maps*
   ff              Search
   fc              Clear search
   ft              Item-type checklist (see |zotero-type-filter|)
+  fT              Tag checklist (see |zotero-tag-filter|)
   f?              Open this help
 
 Toggle view~                                      *zotero-items-toggle-maps*
   tv              Column view (configured/compact/normal/full)
   tc              Collections pane
   ts              Statuscolumn (signs, line numbers)
+  t1 … t9         Toggle Zotero's colored tag 1-9 on the item(s); works on
+                  a visual selection (see |zotero-tags|)
+  tt              Checklist of the item(s)' tags: add/remove several at
+                  once, or a new one (see |zotero-tag-assign|)
   t?              Open this help
 
 Yank~                                               *zotero-items-yank-maps*
