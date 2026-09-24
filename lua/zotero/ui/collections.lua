@@ -6,16 +6,24 @@ local items = require("zotero.ui.items")
 local async_mod = require("zotero.async")
 
 local collections_data = {}
-local expanded = {}
-local seen_roots = {}
 local selected_collection_id = nil
 local cursor_line = 1
 local total_item_count = 0
 local trash_count = 0
 local feeds_data = {}
--- Foldable top-level sections: My Library starts open (showing its
--- collections), Feeds starts folded.
-local section_open = { library = true, feeds = false, tags = false }
+-- The pane is always drawn as the full tree and uses real Vim folds
+-- (foldmethod=expr), so zo/zc/za/zR/zM/zj/zk... all work. fold_closed holds
+-- each fold's open/closed state by id ("section:library", "section:feeds",
+-- "section:tags", "col:<collectionID>"): it is read back from the window
+-- before every redraw and re-applied after it, since replacing the buffer
+-- lines would otherwise reset the folds. Defaults: My Library and
+-- top-level collections open, Feeds, Tags and deeper collections closed.
+local fold_closed = { ["section:library"] = false, ["section:feeds"] = true, ["section:tags"] = true }
+-- Fold level of each buffer line (for foldexpr), matching the drawn lines.
+local fold_levels = {}
+-- The entries currently drawn in the buffer (their fold ids map buffer
+-- lines back to fold_closed when reading the window's fold state).
+local rendered_entries = {}
 -- Tags section: library-wide tag counts and Zotero's colored tags.
 local tag_counts = {}
 local colored_tags = {}
@@ -41,18 +49,18 @@ local function get_display_lines()
     return _display_lines_cache
   end
 
-  local function fold_arrow(open)
-    return open and "▼ " or "▶ "
-  end
-
+  -- Foldable lines always say ▼ in the buffer; a closed fold is displayed
+  -- through foldtext(), which shows ▶ instead.
   local lines = {}
   table.insert(lines, {
-    line = fold_arrow(section_open.library) .. "My Library (" .. tostring(total_item_count) .. ")",
+    line = "▼ My Library (" .. tostring(total_item_count) .. ")",
     collectionID = nil,
     has_children = false,
     depth = 0,
     is_all_items = true,
     section = "library",
+    fold_id = "section:library",
+    fold_level = ">1",
   })
 
   local children_of = {}
@@ -63,28 +71,23 @@ local function get_display_lines()
   end
 
   for _, col in ipairs(collections_data) do
-    local show = false
-    if section_open.library and (col.depth == 0 or expanded[col.parentCollectionID]) then
-      show = true
-    end
-
-    if show then
-      -- One level deeper than the My Library header they sit under.
-      local indent = string.rep("  ", col.depth + 1)
-      local has_children = children_of[col.collectionID] or false
-      local arrow = has_children and (expanded[col.collectionID] and "▼ " or "▶ ") or "  "
-      local count_str = " (" .. tostring(col.item_count) .. ")"
-      local line = indent .. arrow .. col.collectionName .. count_str
-      table.insert(lines, {
-        line = line,
-        collectionID = col.collectionID,
-        has_children = has_children,
-        depth = col.depth,
-      })
-    end
+    -- One level deeper than the My Library header they sit under.
+    local indent = string.rep("  ", col.depth + 1)
+    local has_children = children_of[col.collectionID] or false
+    local count_str = " (" .. tostring(col.item_count) .. ")"
+    table.insert(lines, {
+      line = indent .. (has_children and "▼ " or "  ") .. col.collectionName .. count_str,
+      collectionID = col.collectionID,
+      has_children = has_children,
+      depth = col.depth,
+      -- Inside My Library's fold (level 1) and its ancestors' folds; a
+      -- collection with children starts a fold of its own.
+      fold_id = has_children and ("col:" .. col.collectionID) or nil,
+      fold_level = has_children and (">" .. (col.depth + 2)) or tostring(col.depth + 1),
+    })
   end
 
-  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
 
   -- Each feed is its own Zotero library (as in Zotero's own collection tree,
   -- where "Feeds" sits between the libraries and the rest). The header is
@@ -95,14 +98,16 @@ local function get_display_lines()
       total_unread = total_unread + (tonumber(feed.unread) or 0)
     end
     table.insert(lines, {
-      line = fold_arrow(section_open.feeds) .. "Feeds (" .. tostring(total_unread) .. ")",
+      line = "▼ Feeds (" .. tostring(total_unread) .. ")",
       collectionID = nil,
       has_children = false,
       depth = 0,
       is_feeds_header = true,
       section = "feeds",
+      fold_id = "section:feeds",
+      fold_level = ">1",
     })
-    for _, feed in ipairs(section_open.feeds and feeds_data or {}) do
+    for _, feed in ipairs(feeds_data) do
       table.insert(lines, {
         line = "    " .. feed.name .. " (" .. tostring(feed.unread or 0) .. ")",
         collectionID = nil,
@@ -111,9 +116,10 @@ local function get_display_lines()
         is_feed = true,
         feed_library_id = feed.libraryID,
         feed_name = feed.name,
+        fold_level = "1",
       })
     end
-    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
   end
 
   -- Tags: colored tags first ("1 ● to-read"), then the rest. <CR> on a tag
@@ -122,15 +128,17 @@ local function get_display_lines()
     local tag_filter_mod = require("zotero.ui.tag_filter")
     local rows = tag_filter_mod.ordered(tag_counts, tag_filter, colored_tags)
     table.insert(lines, {
-      line = fold_arrow(section_open.tags) .. "Tags (" .. tostring(#rows) .. ")",
+      line = "▼ Tags (" .. tostring(#rows) .. ")",
       collectionID = nil,
       has_children = false,
       depth = 0,
       is_tags_header = true,
       section = "tags",
+      fold_id = "section:tags",
+      fold_level = ">1",
     })
     local any_colored = #colored_tags > 0
-    for _, row in ipairs(section_open.tags and rows or {}) do
+    for _, row in ipairs(rows) do
       local active = vim.tbl_contains(tag_filter, row.name)
       local head = "  " .. (active and "✓ " or "  ")
       local prefix = tag_filter_mod.prefix(row.index, any_colored)
@@ -146,9 +154,10 @@ local function get_display_lines()
         -- byte columns for apply_highlights()
         dot_col = row.index and (#head + #(tostring(row.index) .. " ")) or nil,
         name_col = #head + #prefix,
+        fold_level = "1",
       })
     end
-    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+    table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
   end
 
   table.insert(lines, {
@@ -157,9 +166,10 @@ local function get_display_lines()
     has_children = false,
     depth = 0,
     is_marked_items = true,
+    fold_level = "0",
   })
 
-  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true })
+  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
 
   table.insert(lines, {
     line = "  Trash (" .. tostring(trash_count) .. ")",
@@ -167,6 +177,7 @@ local function get_display_lines()
     has_children = false,
     depth = 0,
     is_trash = true,
+    fold_level = "0",
   })
 
   _display_lines_cache = lines
@@ -196,14 +207,12 @@ local function load_data()
     collection_keys_by_id[col.collectionID] = col.key
   end
 
-  expanded["root"] = true
-  -- Top-level collections start expanded, but only the first time they're
-  -- seen: re-expanding on every reload would undo the user's collapses
-  -- whenever counts refresh (and race a collapse made mid-render).
+  -- A collection seen for the first time gets the default: top-level ones
+  -- open, deeper ones closed. Later reloads keep whatever the user did.
   for _, col in ipairs(collections_data) do
-    if col.depth == 0 and not seen_roots[col.collectionID] then
-      seen_roots[col.collectionID] = true
-      expanded[col.collectionID] = true
+    local id = "col:" .. col.collectionID
+    if fold_closed[id] == nil then
+      fold_closed[id] = col.depth > 0
     end
   end
 
@@ -254,17 +263,101 @@ function M.restore_render()
   return not db.is_stale_since(_render_version)
 end
 
+local function collections_win()
+  local win = layout.get_collections_win()
+  return win and vim.api.nvim_win_is_valid(win) and win or nil
+end
+
+-- foldexpr / foldtext for the collections window (see setup_folds).
+function M.foldexpr(lnum)
+  return fold_levels[lnum] or "0"
+end
+
+function M.foldtext()
+  local line = vim.fn.getline(vim.v.foldstart)
+  local indent, rest = line:match("^(%s*)▼ (.*)$")
+  if not indent then
+    return line
+  end
+  local name, count = rest:match("^(.-)(%s%(%d+%))$")
+  return {
+    { indent, "Normal" },
+    { "▶ ", "ZoteroCollectionArrow" },
+    { name or rest, "Normal" },
+    { count or "", "ZoteroItemCount" },
+  }
+end
+
+local function setup_folds(win)
+  if vim.w[win].zotero_folds then
+    return
+  end
+  vim.wo[win].foldmethod = "expr"
+  vim.wo[win].foldexpr = "v:lua.require'zotero.ui.collections'.foldexpr(v:lnum)"
+  vim.wo[win].foldtext = "v:lua.require'zotero.ui.collections'.foldtext()"
+  vim.wo[win].foldenable = true
+  vim.wo[win].foldminlines = 0 -- a section with a single entry can still close
+  vim.wo[win].foldlevel = 99
+  vim.wo[win].fillchars = "fold: "
+  vim.w[win].zotero_folds = true
+end
+
+-- Reads each drawn fold's state from the window into fold_closed. A fold
+-- hidden inside a closed parent can't be read and keeps its stored state.
+local function read_fold_state(win)
+  if not vim.w[win].zotero_folds then
+    return -- a fresh window has no folds yet; nothing to read
+  end
+  vim.api.nvim_win_call(win, function()
+    for i, entry in ipairs(rendered_entries) do
+      if entry.fold_id then
+        local closed_at = vim.fn.foldclosed(i)
+        if closed_at == i then
+          fold_closed[entry.fold_id] = true
+        elseif closed_at == -1 then
+          fold_closed[entry.fold_id] = false
+        end
+      end
+    end
+  end)
+end
+
+-- Re-applies fold_closed after the lines were replaced: open everything,
+-- then close bottom-up so nested folds close before their parents (zc on a
+-- line whose own fold is already closed would close the parent instead).
+local function apply_fold_state(win)
+  vim.api.nvim_win_call(win, function()
+    local view = vim.fn.winsaveview()
+    vim.cmd("silent! normal! zR")
+    for i = #rendered_entries, 1, -1 do
+      local id = rendered_entries[i].fold_id
+      if id and fold_closed[id] then
+        vim.api.nvim_win_set_cursor(win, { i, 0 })
+        vim.cmd("silent! normal! zc")
+      end
+    end
+    vim.fn.winrestview(view)
+  end)
+end
+
 function M.refresh_display()
   local buf = layout.get_collections_buf()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     return
   end
+  local win = collections_win()
+  if win then
+    read_fold_state(win)
+  end
 
   local display_lines = get_display_lines()
-  local lines = {}
-  for _, dl in ipairs(display_lines) do
-    table.insert(lines, dl.line)
+  local lines, levels = {}, {}
+  for i, dl in ipairs(display_lines) do
+    lines[i] = dl.line
+    levels[i] = dl.fold_level or "0"
   end
+  fold_levels = levels -- before set_lines: foldexpr reads it
+  rendered_entries = display_lines
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
@@ -278,9 +371,10 @@ function M.refresh_display()
 
   M.apply_highlights(buf)
 
-  local win = layout.get_collections_win()
-  if win and vim.api.nvim_win_is_valid(win) then
+  if win then
+    setup_folds(win)
     vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
+    apply_fold_state(win)
   end
 end
 
@@ -415,43 +509,62 @@ local function delete_feed(entry)
   end)
 end
 
+function M.is_section_open(name)
+  local win = collections_win()
+  if win then
+    read_fold_state(win)
+  end
+  return not fold_closed["section:" .. name]
+end
+
+-- Puts every fold back to its default state (My Library and top-level
+-- collections open; Feeds, Tags and deeper collections closed).
+function M.reset_folds()
+  fold_closed = { ["section:library"] = false, ["section:feeds"] = true, ["section:tags"] = true }
+  for _, col in ipairs(collections_data) do
+    fold_closed["col:" .. col.collectionID] = col.depth > 0
+  end
+  local win = collections_win()
+  if win and vim.w[win].zotero_folds then
+    apply_fold_state(win)
+  end
+end
+
+-- Opens/closes a top-level section ("library", "feeds" or "tags").
+function M.set_section_open(name, open)
+  local id = "section:" .. name
+  if fold_closed[id] == nil then
+    return
+  end
+  local win = collections_win()
+  if win then
+    read_fold_state(win) -- keep the other folds as the user left them
+  end
+  fold_closed[id] = not open
+  if win and vim.w[win].zotero_folds then
+    apply_fold_state(win)
+  end
+end
+
+-- The line under the cursor; on a closed fold, the fold's first line (the
+-- section header or collection it represents).
+local function current_line(win)
+  local line = vim.api.nvim_win_get_cursor(win)[1]
+  local fold_start = vim.api.nvim_win_call(win, function()
+    return vim.fn.foldclosed(line)
+  end)
+  return fold_start ~= -1 and fold_start or line
+end
+
+-- Toggles the fold of the header/collection under the cursor (like za).
+local function toggle_fold_at_cursor(win)
+  vim.api.nvim_win_call(win, function()
+    vim.cmd("silent! normal! za")
+  end)
+end
+
 -- Focuses the collections pane (showing it if hidden) with the cursor on
 -- the Feeds header. Used by goto_feeds (gf) in both panes.
-function M.is_section_open(name)
-  return section_open[name] == true
-end
-
--- Opens/closes a top-level section ("library" or "feeds") and repaints.
-function M.set_section_open(name, open)
-  if section_open[name] == nil or section_open[name] == open then
-    return
-  end
-  section_open[name] = open
-  _structure_version = _structure_version + 1
-  M.refresh_display()
-end
-
--- collections_toggle_fold (za): open/close the section header or collection
--- under the cursor, without loading any items.
-local function toggle_fold()
-  local win = layout.get_collections_win()
-  if not win then
-    return
-  end
-  cursor_line = vim.api.nvim_win_get_cursor(win)[1]
-  local entry = M.get_collection_at_line(cursor_line)
-  if not entry then
-    return
-  end
-  if entry.section then
-    M.set_section_open(entry.section, not section_open[entry.section])
-  elseif entry.has_children then
-    expanded[entry.collectionID] = not expanded[entry.collectionID] or nil
-    _structure_version = _structure_version + 1
-    M.refresh_display()
-  end
-end
-
 function M.focus_feeds()
   if not layout.get_collections_win() or not vim.api.nvim_win_is_valid(layout.get_collections_win()) then
     layout.toggle_collections()
@@ -472,8 +585,7 @@ local function on_enter()
   if not win then
     return
   end
-  local cursor = vim.api.nvim_win_get_cursor(win)
-  cursor_line = cursor[1]
+  cursor_line = current_line(win)
   local entry = M.get_collection_at_line(cursor_line)
   if not entry then
     return
@@ -495,13 +607,9 @@ local function on_enter()
     return
   end
 
-  if entry.is_feeds_header then
-    M.set_section_open("feeds", not section_open.feeds)
-    return
-  end
-
-  if entry.is_tags_header then
-    M.set_section_open("tags", not section_open.tags)
+  -- Feeds / Tags have no item view of their own: <CR> opens/closes them.
+  if entry.is_feeds_header or entry.is_tags_header then
+    toggle_fold_at_cursor(win)
     return
   end
 
@@ -528,13 +636,7 @@ local function on_enter()
   end
 
   if entry.has_children then
-    if expanded[entry.collectionID] then
-      expanded[entry.collectionID] = nil
-    else
-      expanded[entry.collectionID] = true
-    end
-    _structure_version = _structure_version + 1
-    M.refresh_display()
+    toggle_fold_at_cursor(win)
   end
 
   selected_collection_id = entry.collectionID
@@ -542,26 +644,24 @@ local function on_enter()
   layout.focus_items()
 end
 
+-- Native j/k, so closed folds are skipped like in any buffer.
 local function move_cursor(delta)
   local win = layout.get_collections_win()
   if not win then
     return
   end
-  local buf = vim.api.nvim_win_get_buf(win)
-  local line_count = vim.api.nvim_buf_line_count(buf)
-  local new_line = cursor_line + delta
-  if new_line < 1 then
-    new_line = 1
-  end
-  if new_line > line_count then
-    new_line = line_count
-  end
-  cursor_line = new_line
-  vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
+  vim.api.nvim_win_call(win, function()
+    vim.cmd(("silent! normal! %d%s"):format(math.abs(delta), delta > 0 and "j" or "k"))
+  end)
+  cursor_line = vim.api.nvim_win_get_cursor(win)[1]
 end
 
 local function jump_section(direction)
   local display_lines = get_display_lines()
+  local win = layout.get_collections_win()
+  if win and vim.api.nvim_win_is_valid(win) then
+    cursor_line = current_line(win)
+  end
   local target = cursor_line + direction
   while target >= 1 and target <= #display_lines do
     local line = display_lines[target]
@@ -629,7 +729,6 @@ function M.set_keymaps()
   end, "prev section")
 
   map("n", "collections_select", on_enter, "select collection")
-  map("n", "collections_toggle_fold", toggle_fold, "open/close section or collection")
 
   map("n", "collections_toggle_pane", function()
     layout.toggle_collections()
@@ -640,7 +739,7 @@ function M.set_keymaps()
   end, "focus items")
 
   map("n", "collections_new", function()
-    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))
     if entry and (entry.is_feeds_header or entry.is_feed) then
       M.add_feed()
       return
@@ -667,7 +766,7 @@ function M.set_keymaps()
   end, "create collection")
 
   map("n", "collections_delete", function()
-    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))
     if entry and entry.is_feed then
       delete_feed(entry)
       return
@@ -708,7 +807,9 @@ function M.set_keymaps()
     local names = {}
     for line = first, last do
       local entry = M.get_collection_at_line(line)
-      if entry and entry.is_tag then
+      -- Only tags you can see: a closed Tags fold in the selection would
+      -- otherwise select every tag.
+      if entry and entry.is_tag and vim.fn.foldclosed(line) == -1 then
         names[#names + 1] = entry.tag_name
       end
     end
@@ -722,7 +823,7 @@ function M.set_keymaps()
   -- cc on a tag: assign/remove its colour and number key (Zotero's
   -- "Assign Colour…").
   map("n", "collections_tag_colour", function()
-    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))
     if entry and entry.is_tag then
       require("zotero.ui.tag_actions").assign_colour(entry.tag_name)
     else
@@ -731,7 +832,7 @@ function M.set_keymaps()
   end, "assign tag colour")
 
   map("n", "collections_refresh", function()
-    local entry = M.get_collection_at_line(vim.api.nvim_win_get_cursor(0)[1])
+    local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))
     if entry and entry.is_feed then
       M.refresh_feeds(entry.feed_library_id)
     elseif entry and entry.is_feeds_header then

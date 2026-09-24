@@ -21,14 +21,33 @@ local function render_sync()
   end, 20)
 end
 
+-- What the collections window actually shows: the pane uses real Vim
+-- folds, so a closed fold is displayed as its foldtext and the lines inside
+-- it are hidden (the buffer itself always holds the full tree).
+local function screen_text()
+  local win = layout.get_collections_win()
+  local shown = {}
+  vim.api.nvim_win_call(win, function()
+    local l, n = 1, vim.api.nvim_buf_line_count(0)
+    while l <= n do
+      if vim.fn.foldclosed(l) ~= -1 then
+        shown[#shown + 1] = vim.fn.foldtextresult(l)
+        l = vim.fn.foldclosedend(l) + 1
+      else
+        shown[#shown + 1] = vim.fn.getline(l)
+        l = l + 1
+      end
+    end
+  end)
+  return table.concat(shown, "\n")
+end
+
 describe("collections (real buffers, fixture db)", function()
   before_each(function()
     fixture.setup()
     layout.create_layout()
-    -- Section fold state is module-level; start every test from the defaults.
-    collections.set_section_open("library", true)
-    collections.set_section_open("feeds", false)
-    collections.set_section_open("tags", false)
+    -- Fold state is module-level; start every test from the defaults.
+    collections.reset_folds()
     -- Only when needed: set_tag_filter() starts an items reload, which would
     -- race tests that edit the fixture db directly.
     local items = require("zotero.ui.items")
@@ -95,28 +114,21 @@ describe("collections (real buffers, fixture db)", function()
   it("collapsing a collection with children hides its child rows", function()
     render_sync()
     layout.focus_collections()
-    local function line_count()
-      return #vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
-    end
-    local before = line_count()
-
     local function find_line(pattern)
-      local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
-      for i, l in ipairs(lines) do
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
         if l:match(pattern) then return i end
       end
     end
 
     vim.api.nvim_win_set_cursor(layout.get_collections_win(), { find_line("Root A"), 0 })
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false) -- collapse (Root A has children, starts expanded)
-    vim.wait(2000, function() return line_count() < before end, 20)
-    assert.is_nil(find_line("Child of A"))
+    assert.does_not.match("Child of A", screen_text())
+    assert.matches("▶ Root A", screen_text())
 
     layout.focus_collections() -- <CR> on a collection moves focus to the items pane
     vim.api.nvim_win_set_cursor(layout.get_collections_win(), { find_line("Root A"), 0 })
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false) -- re-expand
-    vim.wait(2000, function() return find_line("Child of A") ~= nil end, 20)
-    assert.is_not_nil(find_line("Child of A"))
+    assert.matches("Child of A", screen_text())
   end)
 
   it("renders a Feeds section with unread counts, separate from My Library", function()
@@ -128,13 +140,11 @@ describe("collections (real buffers, fixture db)", function()
     assert.does_not.match("Group Col", text) -- group-library collection stays out
   end)
 
-  describe("foldable sections", function()
+  describe("foldable sections (real Vim folds)", function()
     local function lines()
       return vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
     end
-    local function text()
-      return table.concat(lines(), "\n")
-    end
+    local text = screen_text
     local function press_on(pattern, keys)
       layout.focus_collections()
       for i, l in ipairs(lines()) do
@@ -214,6 +224,30 @@ describe("collections (real buffers, fixture db)", function()
       press_on("ecology", "<CR>") -- again: removed from the filter
       assert.same({}, items.get_tag_filter())
       assert.does_not.match("✓", text())
+    end)
+
+    it("zR opens every fold and zM closes them all, like in any buffer", function()
+      render_sync()
+      press_on("My Library", "zR")
+      assert.matches("Journal RSS", text())
+      assert.matches("genetics", text())
+      assert.matches("Child of A", text())
+      press_on("My Library", "zM")
+      assert.matches("▶ My Library", text())
+      assert.matches("▶ Feeds", text())
+      assert.matches("▶ Tags", text())
+      assert.does_not.match("Root A", text())
+    end)
+
+    it("keeps the folds as you left them when the pane is redrawn", function()
+      render_sync()
+      press_on("Feeds %(", "zo")
+      press_on("Root A", "zc")
+      collections.refresh_counts()
+      vim.wait(1000, function() return false end, 20)
+      assert.matches("Journal RSS", text()) -- Feeds still open
+      assert.matches("▶ Root A", text()) -- Root A still closed
+      assert.does_not.match("Child of A", text())
     end)
 
     it("za on a collection with children folds it without selecting it", function()
