@@ -521,6 +521,31 @@ describe("items (real buffers, fixture db)", function()
     end)
   end)
 
+  it("widens the # column to fit the last row number (no 140 for row 1400)", function()
+    local fixture = require("tests.helpers.fixture")
+    local res = vim.system({ "sqlite3", fixture.db_path }, { text = true, stdin = [[
+      WITH RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i + 1 FROM n WHERE i < 1099)
+      INSERT INTO items (itemID, itemTypeID, libraryID, key, dateAdded)
+        SELECT i, 5, 1, printf('BULK%04d', i), '2019-01-01 00:00:00' FROM n;
+    ]] }):wait()
+    assert.equals(0, res.code, res.stderr)
+    require("zotero.config").set({ db_path = fixture.db_path, max_items = 2000 })
+    require("zotero.db").invalidate_cache()
+    local buf = layout.get_items_buf()
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+    items.load_items(nil)
+    vim.wait(5000, function() return #vim.api.nvim_buf_get_lines(buf, 0, -1, false) > 1000 end, 20)
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    assert.equals(1007, #lines) -- header + separator + 1005 items
+    assert.matches("^%s*1005 │", lines[#lines])
+    assert.matches("^%s*1 │", lines[3])
+    -- Every row's # cell has the same width, so the columns stay aligned.
+    local w = #lines[3]:match("^[^│]*")
+    assert.equals(w, #lines[#lines]:match("^[^│]*"))
+    assert.equals(w, #lines[1]:match("^[^│]*"))
+  end)
+
   describe("yank keys", function()
     local function line_of(pattern)
       for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)) do
