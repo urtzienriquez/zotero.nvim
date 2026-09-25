@@ -2,6 +2,7 @@ local M = {}
 
 local db = require("zotero.db")
 local async_mod = require("zotero.async")
+local winopt = require("zotero.ui.winopt")
 
 local HEADER = [[
 // ── Zotero Item Editor ─────────────────────────────────────────────
@@ -192,15 +193,16 @@ function M.open_edit(item_id)
 
     local prev_win = vim.api.nvim_get_current_win()
 
-    -- Load into the open (unmodified) edit window, or split the current
-    -- window like :split does, so 'splitbelow' decides where it goes.
+    -- Load into the open (unmodified) edit window, or open one across the
+    -- whole width, at the bottom or the top as 'splitbelow' says (like
+    -- fugitive's windows).
     local old = current_edit_buf()
     local win = old and not vim.bo[old].modified and win_of(old)
     if win then
       prev_win = vim.b[old].zotero_prev_win or prev_win
       vim.api.nvim_set_current_win(win)
     else
-      vim.cmd("split")
+      vim.cmd(winopt.edge() .. " split")
       win = vim.api.nvim_get_current_win()
     end
     local buf = vim.api.nvim_create_buf(true, false)
@@ -257,7 +259,7 @@ function M.open_edit(item_id)
     end
 
     map("edit_show_help", function()
-      vim.cmd.help("zotero-edit-maps")
+      winopt.help("zotero-edit-maps")
     end, "open help at the edit-buffer maps")
 
     map("edit_show_fields", function()

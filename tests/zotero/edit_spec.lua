@@ -457,16 +457,22 @@ describe("edit window rules", function()
     assert.matches("unsaved changes in the edit window", notes[#notes])
   end)
 
-  it("splits the current window the way :split does, so 'splitbelow' decides", function()
+  it("spans the whole width, at the bottom or top as 'splitbelow' says (like fugitive)", function()
     local saved = vim.o.splitbelow
+    vim.cmd("vsplit") -- two side-by-side windows, like the library's panes
     for _, below in ipairs({ true, false }) do
       vim.o.splitbelow = below
-      local origin = vim.api.nvim_get_current_win()
       open(2, "ART00002")
-      local edit_row = vim.api.nvim_win_get_position(edit_wins()[1].win)[1]
-      local origin_row = vim.api.nvim_win_get_position(origin)[1]
-      assert.equals(below, edit_row > origin_row)
-      vim.api.nvim_buf_delete(vim.api.nvim_win_get_buf(edit_wins()[1].win), { force = true })
+      local win = edit_wins()[1].win
+      assert.equals(vim.o.columns, vim.api.nvim_win_get_width(win))
+      local row = vim.api.nvim_win_get_position(win)[1]
+      for _, other in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if other ~= win then
+          local other_row = vim.api.nvim_win_get_position(other)[1]
+          assert.is_true(below and row > other_row or (not below and row < other_row))
+        end
+      end
+      vim.api.nvim_buf_delete(vim.api.nvim_win_get_buf(win), { force = true })
       vim.wait(50)
     end
     vim.o.splitbelow = saved

@@ -824,7 +824,7 @@ function M.set_keymaps()
 end
 
 function M.show_help()
-  vim.cmd.help("zotero-collections-maps")
+  winopt.help("zotero-collections-maps")
 end
 
 function M.get_selected_collection_id()

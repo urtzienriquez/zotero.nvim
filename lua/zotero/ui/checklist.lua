@@ -176,7 +176,7 @@ function M.open(spec)
   map("<Esc>", M.close, "close")
   map("g?", function()
     M.close()
-    vim.cmd.help(spec.help_tag)
+    winopt.help(spec.help_tag)
   end, "open help")
 
   vim.api.nvim_create_autocmd("WinLeave", {

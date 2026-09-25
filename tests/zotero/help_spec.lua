@@ -9,7 +9,7 @@ local function help_tags_in_code()
   local tags = {}
   for _, file in ipairs(vim.fn.globpath(root .. "/lua", "**/*.lua", false, true)) do
     for _, line in ipairs(vim.fn.readfile(file)) do
-      local tag = line:match('vim%.cmd%.help%("([^"]+)"%)')
+      local tag = line:match('vim%.cmd%.help%("([^"]+)"%)') or line:match('winopt%.help%("([^"]+)"%)')
       if tag then
         tags[tag] = true
       end
@@ -23,7 +23,7 @@ local function help_tags_in_code()
 end
 
 describe("g? help tags", function()
-  it("every tag used with vim.cmd.help exists in doc/tags", function()
+  it("every tag used with :help exists in doc/tags", function()
     local tags_file = table.concat(vim.fn.readfile(root .. "/doc/tags"), "\n")
     local used = help_tags_in_code()
     assert.is_true(#used >= 10)
@@ -65,5 +65,24 @@ describe("g? in the browser buffers", function()
     require("zotero.ui.collections").set_keymaps()
     layout.focus_collections()
     assert.matches("%*zotero%-collections%-maps%*", press_g_help())
+  end)
+
+  it("opens help across the whole width, at the bottom or top as 'splitbelow' says (like fugitive)", function()
+    require("zotero.ui.collections").set_keymaps()
+    local saved = vim.o.splitbelow
+    for _, below in ipairs({ true, false }) do
+      vim.o.splitbelow = below
+      layout.focus_collections() -- the narrow pane: help must not squeeze into it
+      press_g_help()
+      local win = vim.api.nvim_get_current_win()
+      assert.equals(vim.o.columns, vim.api.nvim_win_get_width(win))
+      local row = vim.api.nvim_win_get_position(win)[1]
+      for _, pane in ipairs({ layout.get_collections_win(), layout.get_items_win() }) do
+        local pane_row = vim.api.nvim_win_get_position(pane)[1]
+        assert.is_true(below and row > pane_row or (not below and row < pane_row))
+      end
+      vim.api.nvim_win_close(win, true)
+    end
+    vim.o.splitbelow = saved
   end)
 end)
