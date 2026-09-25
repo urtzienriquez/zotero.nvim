@@ -13,7 +13,6 @@ zotero-contents	zotero.txt	/*zotero-contents*
 zotero-debug()	zotero.txt	/*zotero-debug()*
 zotero-edit-maps	zotero.txt	/*zotero-edit-maps*
 zotero-feeds	zotero.txt	/*zotero-feeds*
-zotero-fuzzy_find()	zotero.txt	/*zotero-fuzzy_find()*
 zotero-global-maps	zotero.txt	/*zotero-global-maps*
 zotero-import_pdf()	zotero.txt	/*zotero-import_pdf()*
 zotero-installation	zotero.txt	/*zotero-installation*

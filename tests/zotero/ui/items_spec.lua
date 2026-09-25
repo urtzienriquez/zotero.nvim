@@ -42,19 +42,12 @@ describe("items (real buffers, fixture db)", function()
     assert.matches("Title", text)
   end)
 
-  it("show_results(empty) renders the configured empty-library message", function()
-    items.show_results({})
-    local lines = vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)
-    assert.matches("no items in library", table.concat(lines, "\n"))
-  end)
-
-  it("show_results(items) renders the given items without querying the db", function()
-    items.show_results({ { itemID = 1, title = "Custom Result", _authors = "", year = "" } })
-    local lines = vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false)
-    assert.matches("Custom Result", table.concat(lines, "\n"))
-  end)
-
   it("load_items(collection_id) filters by collection", function()
+    -- Blank the buffer first: it still holds the previous test's full list,
+    -- which already contains "Origin" and would end the wait too early.
+    local buf = layout.get_items_buf()
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
     items.load_items(1) -- Root A: items 1, 2
     vim.wait(2000, function()
       local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_items_buf(), 0, -1, false), "\n")
@@ -536,17 +529,17 @@ describe("items (real buffers, fixture db)", function()
     end
 
     it("yk yanks the citation key into the given register", function()
-      items.show_results({ { itemID = 2, title = "Some Paper", citationKey = "darwin1859", _authors = "", year = "" } })
+      fetch_sync()
       layout.focus_items()
-      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Some Paper"), 0 })
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Origin of Species"), 0 })
       feed('"ayk')
-      assert.equals("darwin1859", vim.fn.getreg("a"))
+      assert.equals("darwin1859origin", vim.fn.getreg("a"))
     end)
 
     it("yk leaves the register alone when the item has no citation key", function()
-      items.show_results({ { itemID = 2, title = "No Key Paper", _authors = "", year = "" } })
+      fetch_sync()
       layout.focus_items()
-      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("No Key Paper"), 0 })
+      vim.api.nvim_win_set_cursor(layout.get_items_win(), { line_of("Field Report"), 0 })
       vim.fn.setreg("b", "untouched")
       feed('"byk')
       assert.equals("untouched", vim.fn.getreg("b"))

@@ -92,7 +92,6 @@ CONFIGURATION                                            *zotero-config*
       keymaps = {
         enabled = true,           -- master switch; false disables all keymaps
         open_library = "<leader>zz",   -- toggle Zotero browser
-        fuzzy_find   = "<leader>zf",   -- fuzzy search items
 
         -- Items pane (set any key to false to disable it). Old
         -- <leader>z... layout: see |zotero-legacy-keymaps|.
@@ -163,9 +162,6 @@ CONFIGURATION                                            *zotero-config*
 
       -- Initial sort direction: "desc" or "asc"
       default_sort_dir = "desc",
-
-      -- Fuzzy search backend: "fzf" or "telescope"
-      backend = "fzf",
 
       -- Command to open attachments and URLs/DOIs. nil (default) uses
       -- the OS handler via vim.ui.open() (open/xdg-open/start)
@@ -495,7 +491,6 @@ the defaults; every key can be changed or disabled via `keymaps` in
 
 Global~                                                 *zotero-global-maps*
   <leader>zz      Open/close Zotero browser
-  <leader>zf      Fuzzy search all items
 
 Keys come in two-key families named after what they do (o = open,
 e = edit, a = add, y = yank, s = sort, f = filter, t = toggle view), and
@@ -668,10 +663,6 @@ setup({opts})~
                                               *zotero-open_library()*
 open_library()~
   Open the Zotero library browser in a new tab with a split layout.
-
-                                                *zotero-fuzzy_find()*
-fuzzy_find()~
-  Open a fuzzy search picker (fzf-lua or telescope) to search items.
 
                                                   *zotero-import_pdf()*
 import_pdf({path})~

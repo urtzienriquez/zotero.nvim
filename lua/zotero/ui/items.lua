@@ -989,27 +989,6 @@ local function start_search()
   end)
 end
 
-function M.show_results(results)
-  items_data = results or {}
-  search_term = ""
-  is_searching = false
-  cursor_line = min_cursor_line()
-  current_collection_id = nil
-
-  local buf = layout.get_items_buf()
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then
-    return
-  end
-
-  commit_render(buf, items_data)
-  M.update_status()
-
-  local win = layout.get_items_win()
-  last_items_width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
-
-  _render_version = db.get_data_version()
-end
-
 local function clear_search()
   search_term = ""
   is_searching = false

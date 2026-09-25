@@ -19,7 +19,7 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - Collections tree with expand/collapse, item counts, and section jumps
 - Item table with configurable columns and column presets
 - Detail panel showing full metadata, abstract, tags, notes, attachments
-- Fuzzy search (fzf-lua / telescope) and literal search (_EXPERIMENTAL_)
+- Search (`ff`) with field prefixes, `^`/`$` anchors, AND/OR/NOT, phrases, notes and PDF full text
 - Item marking system: toggle marks, filter to show only marked items
 - Filter the item list by item type on the fly (`ft` / `:ZoteroFilterType`)
 
@@ -122,10 +122,6 @@ require("zotero").setup({
   -- the feed view).
   feed_view = "compact",
 
-  -- Fuzzy search backend.
-  -- Valid: "fzf" | "telescope"
-  backend = "fzf",
-
   -- Columns to display in the items table.
   -- Available: "#", "key", "title", "authors", "year", "journal",
   --            "dateAdded", "type"
@@ -134,7 +130,6 @@ require("zotero").setup({
   keymaps = {
     enabled      = true,           -- master switch; false disables all keymaps
     open_library = "<leader>zz",   -- toggle Zotero browser
-    fuzzy_find   = "<leader>zf",   -- fuzzy search items
 
     -- Items pane (set any key to false to disable it).
     -- Want the old <leader>z... keys? See "Keeping the old keymaps" below.
@@ -210,10 +205,9 @@ By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, 
 
 ### Global
 
-| Key          | Action                                 |
-| ------------ | -------------------------------------- |
-| `<leader>zz` | Open/close Zotero browser              |
-| `<leader>zf` | Fuzzy search all items (fzf/telescope) |
+| Key          | Action                    |
+| ------------ | ------------------------- |
+| `<leader>zz` | Open/close Zotero browser |
 
 Inside the browser, keys come in short two-key families named after what they
 do, in the spirit of vim-fugitive: `o` open, `e` edit, `a` add, `y` yank,
