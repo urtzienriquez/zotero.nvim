@@ -22,6 +22,27 @@ describe("layout", function()
     assert.is_true(vim.api.nvim_win_is_valid(layout.get_collections_win()))
   end)
 
+  it("sets its window options only on its own windows, so new windows keep the user's", function()
+    local saved = { vim.go.number, vim.go.relativenumber, vim.go.signcolumn, vim.go.cursorline, vim.go.wrap }
+    vim.go.number, vim.go.relativenumber, vim.go.signcolumn = true, true, "yes"
+    vim.go.cursorline, vim.go.wrap = false, true
+    layout.create_layout()
+    local items_win = layout.get_items_win()
+    assert.is_false(vim.wo[items_win].number) -- the pane itself hides them
+    assert.is_true(vim.go.number)
+    assert.is_true(vim.go.relativenumber)
+    assert.equals("yes", vim.go.signcolumn)
+    assert.is_false(vim.go.cursorline)
+    assert.is_true(vim.go.wrap)
+    -- A window opened from inside the pane starts from the user's settings.
+    vim.api.nvim_set_current_win(items_win)
+    vim.cmd("new")
+    assert.is_true(vim.wo.number)
+    assert.equals("yes", vim.wo.signcolumn)
+    vim.cmd("close")
+    vim.go.number, vim.go.relativenumber, vim.go.signcolumn, vim.go.cursorline, vim.go.wrap = unpack(saved)
+  end)
+
   it("close() closes the tab and resets is_open()", function()
     layout.create_layout()
     layout.close()

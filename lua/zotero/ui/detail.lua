@@ -6,6 +6,7 @@ local async_mod = require("zotero.async")
 local float_win = nil
 local float_buf = nil
 local backdrop_mod = require("zotero.ui.backdrop")
+local winopt = require("zotero.ui.winopt")
 local backdrop = nil
 local current_item_id = nil
 -- Bumped on every show_item() call so an in-flight render can detect it has
@@ -251,7 +252,7 @@ function M.show_item(item_id, type_name_hint)
       zindex = 50,
     })
 
-    vim.wo[float_win].wrap = true
+    winopt.set(float_win, "wrap", true)
 
     M.apply_highlights(float_buf)
 
