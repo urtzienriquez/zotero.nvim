@@ -518,14 +518,6 @@ local function delete_feed(entry)
   end)
 end
 
-function M.is_section_open(name)
-  local win = collections_win()
-  if win then
-    read_fold_state(win)
-  end
-  return not fold_closed["section:" .. name]
-end
-
 -- Puts every fold back to its default state (My Library and top-level
 -- collections open; Feeds, Tags and deeper collections closed).
 function M.reset_folds()

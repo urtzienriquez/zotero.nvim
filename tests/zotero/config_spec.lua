@@ -10,7 +10,7 @@ describe("config.set / config.get", function()
     config.set({ max_items = 42 })
     local opts = config.get()
     assert.equals(42, opts.max_items)
-    assert.equals("fzf", opts.backend) -- untouched default survives
+    assert.equals("dateAdded", opts.default_sort) -- untouched default survives
   end)
 
   it("deep-merges nested tables (keymaps) instead of replacing them", function()
@@ -94,7 +94,7 @@ describe("config auto-detection", function()
     -- No config.set() call at all.
     local opts = config.get()
     assert.equals(500, opts.max_items)
-    assert.equals("fzf", opts.backend)
+    assert.equals("dateAdded", opts.default_sort)
 
     vim.fn.delete(tmp, "rf")
   end)

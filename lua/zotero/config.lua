@@ -11,7 +11,6 @@ M.defaults = {
     enabled = true,
     -- Global
     open_library = "<leader>zz",
-    fuzzy_find = "<leader>zf",
     -- Items buffer
     items_move_down = "j",
     items_move_up = "k",
@@ -106,7 +105,6 @@ M.defaults = {
   -- "configured" (the `columns` below). Toggling with tv inside a
   -- feed only changes the feed view.
   feed_view = "compact",
-  backend = "fzf",
   max_items = 500,
   columns = { "#", "key", "title", "authors", "year", "journal", "dateAdded" },
   process_timeout = 30000,
