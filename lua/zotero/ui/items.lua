@@ -300,6 +300,11 @@ local function format_items_table(items)
       local def = COLUMN_DEFS[key]
       widths[key] = (def and (def.width or 15)) or 15
     end
+    -- "#" holds the mark ("*") plus the row number: wide enough for the
+    -- last one, so row 1400 isn't cut to "140".
+    if widths["#"] then
+      widths["#"] = math.max(widths["#"], 1 + #tostring(#items))
+    end
 
     local MIN = 3
     local flex = { title = 20, authors = 12 }
