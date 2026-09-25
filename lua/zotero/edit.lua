@@ -131,7 +131,44 @@ local function write_now(buf)
   end
 end
 
+-- The one edit buffer (nil when none is open). `ee` reuses its window
+-- instead of stacking splits.
+local edit_buf = nil
+
+local function win_of(buf)
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(w) == buf then
+      return w
+    end
+  end
+end
+
+-- The edit buffer, if one is open.
+local function current_edit_buf()
+  if edit_buf and vim.api.nvim_buf_is_valid(edit_buf) then
+    return edit_buf
+  end
+  edit_buf = nil
+end
+
 function M.open_edit(item_id)
+  -- Already editing: the same item just gets focus; another item waits
+  -- until the open one's changes are saved or discarded.
+  local open = current_edit_buf()
+  if open then
+    local w = win_of(open)
+    if vim.b[open].zotero_item_id == item_id or vim.bo[open].modified then
+      if w then
+        vim.api.nvim_set_current_win(w)
+      end
+      if vim.b[open].zotero_item_id ~= item_id then
+        async_mod.notify("zotero: unsaved changes in the edit window: save with :w or discard with :q! first",
+          vim.log.levels.WARN)
+      end
+      return
+    end
+  end
+
   async_mod.run("zotero:edit.open", function()
     local t_item_type_id = db.get_item_type_id(item_id)
     local t_data = db.get_editable_item(item_id)
@@ -155,11 +192,21 @@ function M.open_edit(item_id)
 
     local prev_win = vim.api.nvim_get_current_win()
 
-    vim.cmd("botright split")
-    local win = vim.api.nvim_get_current_win()
+    -- Load into the open (unmodified) edit window, or split the current
+    -- window like :split does, so 'splitbelow' decides where it goes.
+    local old = current_edit_buf()
+    local win = old and not vim.bo[old].modified and win_of(old)
+    if win then
+      prev_win = vim.b[old].zotero_prev_win or prev_win
+      vim.api.nvim_set_current_win(win)
+    else
+      vim.cmd("split")
+      win = vim.api.nvim_get_current_win()
+    end
     local buf = vim.api.nvim_create_buf(true, false)
-    vim.api.nvim_win_set_buf(win, buf)
-    pcall(vim.api.nvim_buf_set_name, buf, "zotero://edit")
+    edit_buf = buf -- before the swap: the old buffer's BufWipeout checks it
+    vim.api.nvim_win_set_buf(win, buf) -- the old buffer (bufhidden=wipe) goes away
+    pcall(vim.api.nvim_buf_set_name, buf, "zotero://edit/" .. data.key)
 
     vim.bo[buf].buftype = "acwrite"
     vim.bo[buf].bufhidden = "wipe"
@@ -175,6 +222,11 @@ function M.open_edit(item_id)
       buffer = buf,
       once = true,
       callback = function()
+        -- Replaced by another item's buffer: focus stays in the edit window.
+        if edit_buf ~= buf then
+          return
+        end
+        edit_buf = nil
         vim.schedule(function()
           if prev_win and vim.api.nvim_win_is_valid(prev_win) then
             vim.api.nvim_set_current_win(prev_win)

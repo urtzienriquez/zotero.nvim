@@ -140,6 +140,22 @@ describe("type_filter checklist (real buffers, fixture db)", function()
     assert.equals(0, backdrop_count())
   end)
 
+  it("stays on screen and centered after a resize", function()
+    open_checklist()
+    local win = vim.api.nvim_get_current_win()
+    local columns, lines = vim.o.columns, vim.o.lines
+    vim.o.columns, vim.o.lines = 30, 12
+    vim.api.nvim_exec_autocmds("VimResized", {})
+    local cfg = vim.api.nvim_win_get_config(win)
+    local w, h = vim.api.nvim_win_get_width(win), vim.api.nvim_win_get_height(win)
+    local rows = vim.o.lines - vim.o.cmdheight
+    assert.is_true(w <= 30 - 4 and h <= rows - 4)
+    assert.equals(math.floor((30 - w) / 2), cfg.col)
+    assert.equals(math.floor((rows - h) / 2), cfg.row)
+    press("q")
+    vim.o.columns, vim.o.lines = columns, lines
+  end)
+
   it("removes the backdrop when focus leaves the checklist", function()
     open_checklist()
     layout.focus_items()

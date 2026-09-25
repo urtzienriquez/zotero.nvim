@@ -234,25 +234,22 @@ function M.show_item(item_id, type_name_hint)
     vim.bo[float_buf].modifiable = false
     vim.bo[float_buf].filetype = "zotero-detail"
 
-    local width = math.min(120, vim.o.columns - 8)
-    local height = math.min(#lines, vim.o.lines - 6)
-    local row = math.floor((vim.o.lines - height) / 2)
-    local col = math.floor((vim.o.columns - width) / 2)
-
-    float_win = vim.api.nvim_open_win(float_buf, true, {
-      relative = "editor",
-      width = width,
-      height = height,
-      row = row,
-      col = col,
-      style = "minimal",
-      border = "rounded",
-      title = " Item Details ",
-      title_pos = "center",
-      zindex = 50,
-    })
-
+    local config = backdrop_mod.center(120, #lines)
+    config.style, config.border, config.zindex = "minimal", "rounded", 50
+    config.title, config.title_pos = " Item Details ", "center"
+    float_win = vim.api.nvim_open_win(float_buf, true, config)
     winopt.set(float_win, "wrap", true)
+
+    -- As tall as the text once wrapped (long abstracts wrap), within the
+    -- screen; recomputed when the terminal is resized.
+    local win = float_win
+    local function size()
+      local width = backdrop_mod.center(120, 1).width
+      vim.api.nvim_win_set_config(win, { width = width }) -- the wrapped height depends on it
+      return width, vim.api.nvim_win_text_height(win, {}).all
+    end
+    vim.api.nvim_win_set_config(win, backdrop_mod.center(size()))
+    backdrop_mod.follow_resize(win, backdrop, size)
 
     M.apply_highlights(float_buf)
 
@@ -270,6 +267,20 @@ function M.show_item(item_id, type_name_hint)
       callback = function()
         backdrop_mod.close(backdrop)
         backdrop = nil
+      end,
+    })
+
+    -- Leaving the preview (<C-w>w, a click) closes it, like the checklists,
+    -- instead of leaving it and its backdrop over the panes.
+    vim.api.nvim_create_autocmd("WinLeave", {
+      buffer = float_buf,
+      once = true,
+      callback = function()
+        vim.schedule(function()
+          if float_win == win then
+            M.close()
+          end
+        end)
       end,
     })
   end)
