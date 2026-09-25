@@ -41,11 +41,10 @@ end
 
 local function check_neovim()
   h.start("Neovim")
-  if vim.async then
-    h.ok("Neovim " .. tostring(vim.version()) .. " with `vim.async`")
+  if vim.fn.has("nvim-0.10") == 1 then
+    h.ok("Neovim " .. tostring(vim.version()) .. " (this `v0` branch supports 0.10 and newer)")
   else
-    h.error("Neovim " .. tostring(vim.version()) .. " has no `vim.async`: this `main` branch needs Neovim nightly (0.13-dev)",
-      { "On Neovim 0.10-0.12, install the `v0` branch instead (same features)." })
+    h.error("Neovim " .. tostring(vim.version()) .. " is too old: this `v0` branch needs Neovim 0.10 or newer")
   end
 end
 
