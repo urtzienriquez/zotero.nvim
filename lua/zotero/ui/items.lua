@@ -911,26 +911,6 @@ local function open_link()
   mark_read_on_open(item)
 end
 
-local function move_cursor(delta)
-  local win = layout.get_items_win()
-  if not win then
-    return
-  end
-  local buf = vim.api.nvim_win_get_buf(win)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local cur = vim.api.nvim_win_get_cursor(win)
-  local new_line = cur[1] + delta
-  local mcl = min_cursor_line()
-  if new_line < mcl then
-    new_line = mcl
-  end
-  if new_line > #lines then
-    new_line = #lines
-  end
-  cursor_line = new_line
-  vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
-end
-
 local function toggle_sort(field)
   if sort_by == field then
     sort_dir = sort_dir == "desc" and "asc" or "desc"
@@ -1350,33 +1330,6 @@ function M.set_keymaps()
     vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
   end
 
-  map("n", "items_move_down", function()
-    move_cursor(vim.v.count1)
-  end, "move down")
-
-  map("n", "items_move_up", function()
-    move_cursor(-vim.v.count1)
-  end, "move up")
-
-  map("n", "items_move_down_alt", function()
-    move_cursor(vim.v.count1)
-  end, "move down")
-
-  map("n", "items_move_up_alt", function()
-    move_cursor(-vim.v.count1)
-  end, "move up")
-
-  map("n", "items_go_to_top", function()
-    cursor_line = min_cursor_line()
-    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-  end, "go to top")
-
-  map("n", "items_go_to_bottom", function()
-    local buf = vim.api.nvim_win_get_buf(layout.get_items_win())
-    cursor_line = vim.api.nvim_buf_line_count(buf)
-    vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
-  end, "go to bottom")
-
   map("n", "items_show_detail", on_enter, "show detail")
   map("n", "items_open_attachment", open_attachment, "open attachment")
   map("n", "items_yank_citation_key", yank_citation_key, "yank citation key")
@@ -1735,18 +1688,21 @@ function M.set_keymaps()
     end
   end, "edit item")
 
-  map("n", "items_focus_collections", function()
-    layout.focus_collections()
-  end, "focus collections")
-
   map("n", "items_show_help", function()
     M.show_help()
   end, "help")
 
+  -- Vim's own motions move the cursor; this only keeps it off the header
+  -- rows (gg, k, <C-u>, a click…) and remembers it for the next redraw.
   vim.api.nvim_create_autocmd("CursorMoved", {
     buffer = buf,
     callback = function()
       local cursor = vim.api.nvim_win_get_cursor(0)
+      local mcl = min_cursor_line()
+      if cursor[1] < mcl and vim.api.nvim_buf_line_count(buf) >= mcl then
+        vim.api.nvim_win_set_cursor(0, { mcl, cursor[2] })
+        cursor[1] = mcl
+      end
       cursor_line = cursor[1]
     end,
   })

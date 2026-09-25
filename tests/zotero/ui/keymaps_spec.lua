@@ -52,6 +52,38 @@ describe("keymaps (real buffers, fixture db)", function()
     fixture.teardown()
   end)
 
+  describe("plain Vim motions", function()
+    local function mapped(buf, lhs)
+      return vim.api.nvim_buf_call(buf, function()
+        return vim.fn.maparg(lhs, "n", false, true).buffer == 1
+      end)
+    end
+
+    it("leaves <Tab>, <Esc>, j, k, gg and G to Vim in both panes", function()
+      for _, buf in ipairs({ layout.get_items_buf(), layout.get_collections_buf() }) do
+        for _, lhs in ipairs({ "<Tab>", "<Esc>", "j", "k", "<Down>", "<Up>", "gg", "G" }) do
+          assert.is_false(mapped(buf, lhs), lhs .. " is still mapped")
+        end
+      end
+    end)
+
+    it("keeps the cursor off the header rows of the items table", function()
+      layout.focus_items()
+      local win, buf = layout.get_items_win(), layout.get_items_buf()
+      -- Keys fed with "x" skip the idle step where Neovim fires CursorMoved,
+      -- so fire it the way typing would.
+      local function motion(keys)
+        press(keys)
+        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = buf })
+        return vim.api.nvim_win_get_cursor(win)[1]
+      end
+      assert.equals(vim.api.nvim_buf_line_count(buf), motion("G"))
+      assert.equals(3, motion("gg")) -- first item, below header + separator
+      assert.equals(3, motion("k"))
+      assert.equals(5, motion("2j"))
+    end)
+  end)
+
   describe("g navigation", function()
     it("gd goes to Trash and gl back to My Library, from the items pane", function()
       layout.focus_items()

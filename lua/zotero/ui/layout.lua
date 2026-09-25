@@ -128,15 +128,6 @@ function M.set_keymaps()
   local collections_buf = state.collections_buf
   local items_buf = state.items_buf
 
-  local lhs = km.collections_focus_items_esc
-  if lhs then
-    vim.keymap.set("n", lhs, function()
-      if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
-        vim.api.nvim_set_current_win(state.items_win)
-      end
-    end, { buffer = collections_buf, silent = true, nowait = true, desc = "focus items" })
-  end
-
   local toggle_lhs = km.toggle_statuscolumn
   if toggle_lhs then
     for _, buf in ipairs({ collections_buf, items_buf }) do

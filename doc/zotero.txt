@@ -97,7 +97,6 @@ CONFIGURATION                                            *zotero-config*
         -- <leader>z... layout: see |zotero-legacy-keymaps|.
         items_show_detail        = "<CR>",
         items_refresh            = "R",
-        items_focus_collections  = "<Tab>",
         items_show_help          = "g?",
         items_open_attachment    = "oo",   -- o: open
         items_open_url           = "ob",
@@ -138,13 +137,9 @@ CONFIGURATION                                            *zotero-config*
         goto_trash               = "gd",
 
         -- Collections pane
-        collections_move_down       = "j",
-        collections_move_up         = "k",
         collections_next_section    = "]]",
         collections_prev_section    = "[[",
         collections_select          = "<CR>",
-        collections_focus_items     = "<Tab>",
-        collections_focus_items_esc = "<Esc>",
         collections_new             = "aa",
         collections_delete          = "dd",
         collections_tag_colour      = "cc",
@@ -498,7 +493,6 @@ e = edit, a = add, y = yank, s = sort, f = filter, t = toggle view), and
 navigation, never for actions.
 
 Collections Pane~                                  *zotero-collections-maps*
-  j / k           Navigate up/down (also <Down> / <Up>)
   ]] / [[         Next / previous section
   <CR>            Select collection, feed, Marked or Trash (loads items);
                   on a collection with children, also expand/collapse;
@@ -514,7 +508,6 @@ Collections Pane~                                  *zotero-collections-maps*
   cc on a tag     Assign/remove its colour and number key (1-9)
   dd on a tag     Delete it from all items (asks first); on a visual
                   selection of tags, delete all of them
-  <Tab> / <Esc>   Focus items pane
   aa              Add a collection (on Feeds or a feed: add a feed)
   dd              Trash the collection (on a feed: unsubscribe)
   R               Refresh (on a feed: fetch new items; on Feeds: all)
@@ -524,11 +517,8 @@ Collections Pane~                                  *zotero-collections-maps*
   g?              Open this help
 
 Items Pane~                                              *zotero-items-maps*
-  j / k           Navigate up/down (also <Down> / <Up>)
-  gg / G          Go to first / last item
   <CR>            Show item detail
   R               Refresh (in a feed: fetch new items first)
-  <Tab>           Focus collections pane
   dd              Trash item(s); permanent delete in Trash
   cm              Move item(s) to a collection
   cr              Remove item(s) from the collection you're viewing; they
