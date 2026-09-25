@@ -556,38 +556,58 @@ end
 -- ---------------------------------------------------------------------------
 -- Search (`ff`): see lua/zotero/search_query.lua for the syntax.
 
--- `col LIKE '%text%'`, accent-insensitive in both directions: the column is
--- folded by deaccent_sql, the query text by deaccent_word.
-local function like_folded(col, text)
-  return "(" .. col .. " LIKE '%" .. types.escape_sql(text) .. "%' OR " .. deaccent_sql(col)
-    .. " LIKE '%" .. types.escape_sql(deaccent_word(text)) .. "%')"
+-- LIKE pattern for a search value: "%text%" (contains), or anchored with
+-- ^ / $ to the start / end of the column. `%`, `_` and `\` in the text are
+-- matched literally (the LIKE uses ESCAPE '\').
+local function like_pattern(text, v)
+  local body = text:gsub("[\\%%_]", "\\%0")
+  return (v.anchor_start and "" or "%") .. body .. (v.anchor_end and "" or "%")
 end
 
-local function item_field_like(field_id, text)
+-- `col LIKE <pattern>`, accent-insensitive in both directions: the column is
+-- folded by deaccent_sql, the query text by deaccent_word. `v` is a search
+-- value ({ text, anchor_start, anchor_end }). deaccent_sql is slow, so it
+-- only runs on values that aren't plain ASCII (for those, folding the query
+-- is enough); CASE makes sure SQLite tries the cheap tests first.
+local function like_folded(col, v)
+  local raw = col .. " LIKE '" .. types.escape_sql(like_pattern(v.text, v)) .. "' ESCAPE '\\'"
+  local folded_pat = "'" .. types.escape_sql(like_pattern(deaccent_word(v.text), v)) .. "' ESCAPE '\\'"
+  return "(CASE WHEN " .. raw .. " OR " .. col .. " LIKE " .. folded_pat .. " THEN 1"
+    .. " WHEN " .. col .. " GLOB '*[^' || char(9, 10, 13) || ' -~]*' THEN " .. deaccent_sql(col) .. " LIKE " .. folded_pat
+    .. " ELSE 0 END)"
+end
+
+local function item_field_like(field_id, v)
   return "EXISTS (SELECT 1 FROM itemData idf JOIN itemDataValues dvf ON idf.valueID = dvf.valueID"
-    .. " WHERE idf.itemID = i.itemID AND idf.fieldID = " .. field_id .. " AND " .. like_folded("dvf.value", text) .. ")"
+    .. " WHERE idf.itemID = i.itemID AND idf.fieldID = " .. field_id .. " AND " .. like_folded("dvf.value", v) .. ")"
 end
 
 -- The metadata fields a search can be limited to with a prefix
 -- (`author:huey`); a plain word matches any of them. `column` is the field's
--- zn_search column, `like` its fallback for when the index can't be used
--- (older sqlite3 builds, a failed index build, a term too short for trigram
--- MATCH). Relies on the t/p/y/k joins of get_items' query.
+-- zn_search column; `like` matches the field itself, used when the index
+-- can't be (older sqlite3 builds, a failed index build, a term too short for
+-- trigram MATCH) and for ^ / $ anchors, which the index can't express.
+-- Tags and creators are matched one at a time, so an anchor applies to each
+-- tag / creator on its own. Relies on the t/p/y/k joins of get_items' query.
 local META_FIELDS = {
-  { scope = "title", column = "title", like = function(x) return like_folded("t.title", x) end },
-  { scope = "pub", column = "pub", like = function(x) return like_folded("p.publicationTitle", x) end },
-  { scope = "author", column = "creators", like = function(x)
+  { scope = "title", column = "title", like = function(v) return like_folded("t.title", v) end },
+  { scope = "pub", column = "pub", like = function(v) return like_folded("p.publicationTitle", v) end },
+  { scope = "author", column = "creators", like = function(v)
+    local full = like_folded("TRIM(COALESCE(cf.firstName,'') || ' ' || COALESCE(cf.lastName,''))", v)
+    -- Anchored, a last name counts on its own too: ^huey$ is Raymond B. Huey.
+    if v.anchor_start or v.anchor_end then
+      full = "(" .. full .. " OR " .. like_folded("cf.lastName", v) .. ")"
+    end
     return "EXISTS (SELECT 1 FROM itemCreators icf JOIN creators cf ON icf.creatorID = cf.creatorID"
-      .. " WHERE icf.itemID = i.itemID AND "
-      .. like_folded("TRIM(COALESCE(cf.firstName,'') || ' ' || COALESCE(cf.lastName,''))", x) .. ")"
+      .. " WHERE icf.itemID = i.itemID AND " .. full .. ")"
   end },
-  { scope = "date", column = "date", like = function(x) return "y.date_str LIKE '" .. types.escape_sql(x) .. "%'" end },
-  { scope = "citekey", column = "citekey", like = function(x) return like_folded("k.citationKey", x) end },
-  { scope = "abstract", column = "abstract", like = function(x) return item_field_like(FIELD_IDS.abstractNote, x) end },
-  { scope = "doi", column = "doi", like = function(x) return item_field_like(FIELD_IDS.DOI, x) end },
-  { scope = "tag", column = "tags", like = function(x)
+  { scope = "date", column = "date", like = function(v) return "y.date_str LIKE '" .. types.escape_sql(v.text) .. "%'" end },
+  { scope = "citekey", column = "citekey", like = function(v) return like_folded("k.citationKey", v) end },
+  { scope = "abstract", column = "abstract", like = function(v) return item_field_like(FIELD_IDS.abstractNote, v) end },
+  { scope = "doi", column = "doi", like = function(v) return item_field_like(FIELD_IDS.DOI, v) end },
+  { scope = "tag", column = "tags", like = function(v)
     return "EXISTS (SELECT 1 FROM itemTags itf JOIN tags tf ON itf.tagID = tf.tagID"
-      .. " WHERE itf.itemID = i.itemID AND " .. like_folded("tf.name", x) .. ")"
+      .. " WHERE itf.itemID = i.itemID AND " .. like_folded("tf.name", v) .. ")"
   end },
 }
 local META_BY_SCOPE = {}
@@ -607,18 +627,28 @@ local function index_match(text, column)
   return "i.itemID IN (SELECT itemid FROM zn_search WHERE zn_search MATCH '" .. types.escape_sql(phrase) .. "')"
 end
 
--- A metadata term: one field (`field` from META_FIELDS) or, with nil, any of
--- them plus an exact item-key match.
-local function meta_predicate(text, use_index, field)
+-- A metadata value: one field (`field` from META_FIELDS) or, with nil, any
+-- of them plus an exact item-key match.
+local function meta_predicate(v, use_index, field)
+  local text = v.text
+  local indexed = use_index and vim.fn.strchars(text) >= 3
   local pred
-  if use_index and vim.fn.strchars(text) >= 3 then
+  if field and (v.anchor_start or v.anchor_end) then
+    -- The index finds the candidates quickly; LIKE then checks the anchors.
+    -- CASE, not AND: SQLite may evaluate AND's sides in any order, and the
+    -- accent-folding LIKE is far too slow to run on every item.
+    pred = field.like(v)
+    if indexed then
+      pred = "CASE WHEN " .. index_match(text, field.column) .. " THEN (" .. pred .. ") ELSE 0 END"
+    end
+  elseif indexed then
     pred = index_match(text, field and field.column)
   elseif field then
-    pred = field.like(text)
+    pred = field.like(v)
   else
     local ors = {}
     for _, f in ipairs(META_FIELDS) do
-      ors[#ors + 1] = f.like(text)
+      ors[#ors + 1] = f.like(v)
     end
     pred = "(" .. table.concat(ors, " OR ") .. ")"
   end
@@ -741,7 +771,7 @@ local function search_clause(search_term, dbfile)
           elseif term.scope == "year" then
             pred = year_predicate(value.text)
           else
-            pred = meta_predicate(value.text, use_index, META_BY_SCOPE[term.scope])
+            pred = meta_predicate(value, use_index, META_BY_SCOPE[term.scope])
           end
           alts[#alts + 1] = "(" .. pred .. ")"
         end
@@ -912,31 +942,14 @@ function M.get_items(collection_id, search_term, sort_by, sort_dir, limit_overri
       JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
       LEFT JOIN feedItems fi ON i.itemID = fi.itemID
       ]] .. join .. [[
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS title
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.title .. [[
-      ) t ON i.itemID = t.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS date_str,
-          CAST(substr(dv.value, 1, 4) AS INTEGER) AS year
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.date .. [[
-      ) y ON i.itemID = y.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS citationKey
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.citationKey .. [[
-      ) k ON i.itemID = k.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS publicationTitle
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
-      ) p ON i.itemID = p.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = ]] .. FIELD_IDS.title .. [[
+      LEFT JOIN (SELECT valueID, value AS title FROM itemDataValues) t ON t.valueID = td.valueID
+      LEFT JOIN itemData yd ON yd.itemID = i.itemID AND yd.fieldID = ]] .. FIELD_IDS.date .. [[
+      LEFT JOIN (SELECT valueID, value AS date_str, CAST(substr(value, 1, 4) AS INTEGER) AS year FROM itemDataValues) y ON y.valueID = yd.valueID
+      LEFT JOIN itemData kd ON kd.itemID = i.itemID AND kd.fieldID = ]] .. FIELD_IDS.citationKey .. [[
+      LEFT JOIN (SELECT valueID, value AS citationKey FROM itemDataValues) k ON k.valueID = kd.valueID
+      LEFT JOIN itemData pd ON pd.itemID = i.itemID AND pd.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
+      LEFT JOIN (SELECT valueID, value AS publicationTitle FROM itemDataValues) p ON p.valueID = pd.valueID
       WHERE ]] .. where .. [[
       ORDER BY ]] .. order .. [[
       LIMIT ]] .. tostring(limit) .. [[
@@ -967,31 +980,14 @@ function M.get_trash_items(sort_by, sort_dir, limit_override)
       FROM items i
       JOIN deletedItems d ON i.itemID = d.itemID
       JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS title
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.title .. [[
-      ) t ON i.itemID = t.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS date_str,
-          CAST(substr(dv.value, 1, 4) AS INTEGER) AS year
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.date .. [[
-      ) y ON i.itemID = y.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS citationKey
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.citationKey .. [[
-      ) k ON i.itemID = k.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS publicationTitle
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
-      ) p ON i.itemID = p.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = ]] .. FIELD_IDS.title .. [[
+      LEFT JOIN (SELECT valueID, value AS title FROM itemDataValues) t ON t.valueID = td.valueID
+      LEFT JOIN itemData yd ON yd.itemID = i.itemID AND yd.fieldID = ]] .. FIELD_IDS.date .. [[
+      LEFT JOIN (SELECT valueID, value AS date_str, CAST(substr(value, 1, 4) AS INTEGER) AS year FROM itemDataValues) y ON y.valueID = yd.valueID
+      LEFT JOIN itemData kd ON kd.itemID = i.itemID AND kd.fieldID = ]] .. FIELD_IDS.citationKey .. [[
+      LEFT JOIN (SELECT valueID, value AS citationKey FROM itemDataValues) k ON k.valueID = kd.valueID
+      LEFT JOIN itemData pd ON pd.itemID = i.itemID AND pd.fieldID = ]] .. FIELD_IDS.publicationTitle .. [[
+      LEFT JOIN (SELECT valueID, value AS publicationTitle FROM itemDataValues) p ON p.valueID = pd.valueID
       WHERE ]] .. not_child("i") .. [[ AND ]] .. in_library("i", lib) .. [[
 
       UNION ALL
@@ -1181,12 +1177,8 @@ function M.get_item_attachments(item_id)
         COALESCE(t.value, a.path) AS title
       FROM items i
       JOIN itemAttachments a ON i.itemID = a.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = 1
-      ) t ON i.itemID = t.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = 1
+      LEFT JOIN (SELECT valueID, value FROM itemDataValues) t ON t.valueID = td.valueID
       WHERE a.parentItemID = ]] .. sql_int(item_id) .. [[
       ORDER BY i.dateAdded
     ]]
@@ -1201,12 +1193,8 @@ function M.get_attachment(item_id)
         COALESCE(t.value, a.path) AS title
       FROM items i
       JOIN itemAttachments a ON i.itemID = a.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = 1
-      ) t ON i.itemID = t.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = 1
+      LEFT JOIN (SELECT valueID, value FROM itemDataValues) t ON t.valueID = td.valueID
       WHERE i.itemID = ]] .. sql_int(item_id) .. [[
     ]]
     local results = json_query(sql)
@@ -1323,12 +1311,8 @@ function M.get_item_detail(item_id)
               a.path AS path, COALESCE(t.value, a.path) AS title
             FROM items i
             JOIN itemAttachments a ON i.itemID = a.itemID
-            LEFT JOIN (
-              SELECT id.itemID, dv.value
-              FROM itemData id
-              JOIN itemDataValues dv ON id.valueID = dv.valueID
-              WHERE id.fieldID = 1
-            ) t ON i.itemID = t.itemID
+            LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = 1
+            LEFT JOIN (SELECT valueID, value FROM itemDataValues) t ON t.valueID = td.valueID
             WHERE a.parentItemID = ]] .. id .. [[
             ORDER BY i.dateAdded
           )
@@ -1615,12 +1599,8 @@ function M.get_items_by_field_value(field_name, value)
       FROM itemData id
       JOIN itemDataValues dv ON id.valueID = dv.valueID
       JOIN items i ON id.itemID = i.itemID
-      LEFT JOIN (
-        SELECT id2.itemID, dv2.value AS value
-        FROM itemData id2
-        JOIN itemDataValues dv2 ON id2.valueID = dv2.valueID
-        WHERE id2.fieldID = 1
-      ) t ON i.itemID = t.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = 1
+      LEFT JOIN (SELECT valueID, value AS value FROM itemDataValues) t ON t.valueID = td.valueID
       WHERE id.fieldID = ]] .. field_id .. [[
         AND dv.value = ']] .. types.escape_sql(value) .. [['
         AND (]] .. not_child("i") .. [[)
@@ -1636,12 +1616,8 @@ function M.get_item_by_key(key)
     local sql = [[
       SELECT i.itemID, i.key, t.value AS title
       FROM items i
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS value
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = 1
-      ) t ON i.itemID = t.itemID
+      LEFT JOIN itemData td ON td.itemID = i.itemID AND td.fieldID = 1
+      LEFT JOIN (SELECT valueID, value AS value FROM itemDataValues) t ON t.valueID = td.valueID
       WHERE i.key = ']] .. types.escape_sql(key) .. [['
         AND ]] .. in_library("i", user_library_id()) .. [[
     ]]
@@ -1680,12 +1656,8 @@ function M.get_parent_item_by_attachment_key(attachment_key)
       FROM items a
       JOIN itemAttachments att ON a.itemID = att.itemID
       JOIN items p ON att.parentItemID = p.itemID
-      LEFT JOIN (
-        SELECT id.itemID, dv.value AS value
-        FROM itemData id
-        JOIN itemDataValues dv ON id.valueID = dv.valueID
-        WHERE id.fieldID = 1
-      ) t ON p.itemID = t.itemID
+      LEFT JOIN itemData td ON td.itemID = p.itemID AND td.fieldID = 1
+      LEFT JOIN (SELECT valueID, value AS value FROM itemDataValues) t ON t.valueID = td.valueID
       WHERE a.key = ']] .. types.escape_sql(attachment_key) .. [['
         AND ]] .. in_library("a", user_library_id()) .. [[
     ]]

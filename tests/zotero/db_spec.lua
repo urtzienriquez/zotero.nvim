@@ -234,6 +234,36 @@ describe("db (against fixture sqlite db)", function()
         assert.same({ 2 }, ids("author:smith AND author:niguez"))
       end)
 
+      it("^ / $ anchor a field value to its start / end", function()
+        assert.same({ 2 }, ids('pub:"^nature$"'))
+        assert.same({ 2 }, ids("pub:^natur"))
+        assert.same({}, ids("pub:^atur"))
+        assert.same({ 1 }, ids('title:"^on the origin of species$"'))
+        assert.same({ 1 }, ids("title:species$")) -- item 2 has "species-rich" mid-title
+        assert.same({ 1 }, ids('title:"^on the"'))
+        assert.same({ 1 }, ids("title:^on")) -- short word: fallback path
+        assert.same({}, ids("title:population$")) -- ends in "populations"
+        assert.same({ 3 }, ids('title:"alcantara populations$"')) -- accent-insensitive
+      end)
+
+      it("anchors apply to each tag and each creator (last or full name) on its own", function()
+        assert.same({ 2 }, ids("tag:^ecology$"))
+        assert.same({ 2 }, ids("tag:^eco"))
+        assert.same({ 2 }, ids("tag:logy$"))
+        assert.same({}, ids("tag:^colog"))
+        assert.same({ 2 }, ids("author:^smith$"))
+        assert.same({ 2 }, ids('author:"^jane smith$"'))
+        assert.same({ 2 }, ids("author:^niguez$")) -- accent-insensitive
+        assert.same({}, ids("author:^jane$")) -- a first name alone doesn't count
+        assert.same({ 1, 2 }, ids('author:"^darwin$ OR ^smith$"'))
+        assert.same({ 1, 3, 5, 8 }, ids("-author:^smith$"))
+      end)
+
+      it("matches % and _ literally", function()
+        assert.same({}, ids("title:o_")) -- not a wildcard for "on"
+        assert.same({}, ids("title:^o%"))
+      end)
+
       it("ft: searches the full text of indexed PDFs", function()
         -- Zotero's full-text table is FTS5, which e.g. macOS's own sqlite3
         -- lacks: there ft: can only match nothing (and warn).

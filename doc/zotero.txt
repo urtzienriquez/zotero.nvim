@@ -309,6 +309,31 @@ Search~                                                      *zotero-search*
                   of one: `ft:clim` finds "climate" but not
                   "microclimate". Only files Zotero has indexed can match.
 
+  Start and end of a field~
+  After a field prefix (not `ft:`, `note:` or `year:`), `^` ties a word
+  or phrase to the start of the field and `$` to its end, still ignoring
+  case and accents:
+
+    pub:"^evolution$"    the journal "Evolution", not "Trends in Ecology
+                         and Evolution" nor "Evolution Letters"
+    pub:^evolution       starts with it: "Evolution", "Evolution
+                         Letters", "Evolutionary Ecology"…
+    pub:evolution$       ends with it: "Evolution", "Trends in Ecology
+                         and Evolution"…
+    title:"^the"         titles that start with "The"
+
+  Tags and creators are checked one at a time, and one fitting is
+  enough: `tag:^ecology$` is an item with a tag that is exactly
+  "ecology" (whatever its other tags), `tag:^thermal` one with a tag that
+  starts with "thermal". A creator counts by last name or by full name:
+  `author:^huey$` is Raymond B. Huey, and so is
+  `author:"^raymond b. huey$"`; a first name alone doesn't count
+  (`author:^raymond$`). Anchors work inside quotes with operators too:
+  `pub:"^evolution$ OR ^ecology$"`, `-pub:"^evolution$"`.
+
+  Without a prefix, `^` and `$` are ordinary characters, as they are when
+  nothing is left between them (`pub:^`).
+
   Operators~
   a b             Every word must match. `a AND b` and `a & b` say the
                   same (only the upper-case `AND` is an operator; `and`
@@ -359,6 +384,8 @@ Search~                                                      *zotero-search*
                           co-authored by both, PDF mentions "thermal…"
     title:thermal -author:huey
                           "thermal" in the title, not by Huey
+    pub:"^evolution$" year:2020-
+                          papers in the journal Evolution since 2020
     niche OR "distribution model"
                           the word or the phrase, anywhere
     ft:"range shift" -ft:model

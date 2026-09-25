@@ -11,7 +11,8 @@ local function show(query)
       for _, values in ipairs(t.groups) do
         local alts = {}
         for _, v in ipairs(values) do
-          alts[#alts + 1] = v.phrase and ('"' .. v.text .. '"') or v.text
+          local text = (v.anchor_start and "^" or "") .. v.text .. (v.anchor_end and "$" or "")
+          alts[#alts + 1] = v.phrase and ('"' .. text .. '"') or text
         end
         groups[#groups + 1] = table.concat(alts, "|")
       end
@@ -86,6 +87,21 @@ describe("search_query.parse", function()
     assert.same({ { "x", "author:{a & b}" } }, show('x OR author:"a AND b"'))
     assert.same({ { '"a AND b"' } }, show('"a AND b"')) -- no prefix: a literal phrase
     assert.same({ { '"huey OR kearney"' } }, show('"huey OR kearney"')) -- no prefix: a literal phrase
+  end)
+
+  it("reads ^ / $ anchors after a field prefix", function()
+    local v = parse('pub:"^evolution$"')[1][1].groups[1][1]
+    assert.same({ text = "evolution", phrase = true, anchor_start = true, anchor_end = true }, v)
+    assert.same({ { "pub:^evol" }, { "-tag:logy$" } }, show("pub:^evol -tag:logy$"))
+    assert.same({ { 'pub:{^evolution$|"^trends in"}' } }, show('pub:"^evolution$ OR ^trends in"'))
+  end)
+
+  it("keeps ^ / $ literal without a field prefix, with ft:/note:/year:, or with nothing between", function()
+    assert.is_nil(parse("^evolution$")[1][1].groups[1][1].anchor_start)
+    assert.same({ { "^evolution$" } }, show("^evolution$"))
+    assert.same({ { "ft:^x$" } }, show("ft:^x$"))
+    assert.same({ { "note:^x" } }, show("note:^x"))
+    assert.same({ { "pub:^" }, { "pub:^$" } }, show("pub:^ pub:^$"))
   end)
 
   it("leaves other colons and unbalanced quotes alone", function()
