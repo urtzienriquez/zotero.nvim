@@ -12,15 +12,8 @@ M.defaults = {
     -- Global
     open_library = "<leader>zz",
     -- Items buffer
-    items_move_down = "j",
-    items_move_up = "k",
-    items_move_down_alt = "<Down>",
-    items_move_up_alt = "<Up>",
-    items_go_to_top = "gg",
-    items_go_to_bottom = "G",
     items_show_detail = "<CR>",
     items_refresh = "R",
-    items_focus_collections = "<Tab>",
     items_show_help = "g?",
     -- o: open
     items_open_attachment = "oo",
@@ -72,15 +65,9 @@ M.defaults = {
     goto_feeds = "gf",
     goto_trash = "gd",
     -- Collections buffer
-    collections_move_down = "j",
-    collections_move_up = "k",
-    collections_move_down_alt = "<Down>",
-    collections_move_up_alt = "<Up>",
     collections_next_section = "]]",
     collections_prev_section = "[[",
     collections_select = "<CR>",
-    collections_focus_items = "<Tab>",
-    collections_focus_items_esc = "<Esc>",
     collections_new = "aa",
     collections_delete = "dd",
     collections_tag_colour = "cc",

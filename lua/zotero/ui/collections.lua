@@ -638,17 +638,6 @@ local function on_enter()
 end
 
 -- Native j/k, so closed folds are skipped like in any buffer.
-local function move_cursor(delta)
-  local win = layout.get_collections_win()
-  if not win then
-    return
-  end
-  vim.api.nvim_win_call(win, function()
-    vim.cmd(("silent! normal! %d%s"):format(math.abs(delta), delta > 0 and "j" or "k"))
-  end)
-  cursor_line = vim.api.nvim_win_get_cursor(win)[1]
-end
-
 local function jump_section(direction)
   local display_lines = get_display_lines()
   local win = layout.get_collections_win()
@@ -697,22 +686,6 @@ function M.set_keymaps()
     vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
   end
 
-  map("n", "collections_move_down", function()
-    move_cursor(vim.v.count1)
-  end, "move down")
-
-  map("n", "collections_move_up", function()
-    move_cursor(-vim.v.count1)
-  end, "move up")
-
-  map("n", "collections_move_down_alt", function()
-    move_cursor(vim.v.count1)
-  end, "move down")
-
-  map("n", "collections_move_up_alt", function()
-    move_cursor(-vim.v.count1)
-  end, "move up")
-
   map("n", "collections_next_section", function()
     jump_section(1)
   end, "next section")
@@ -726,10 +699,6 @@ function M.set_keymaps()
   map("n", "collections_toggle_pane", function()
     layout.toggle_collections()
   end, "toggle collections pane")
-
-  map("n", "collections_focus_items", function()
-    layout.focus_items()
-  end, "focus items")
 
   map("n", "collections_new", function()
     local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))

@@ -134,7 +134,6 @@ require("zotero").setup({
     -- Want the old <leader>z... keys? See "Keeping the old keymaps" below.
     items_show_detail        = "<CR>",
     items_refresh            = "R",
-    items_focus_collections  = "<Tab>",
     items_show_help          = "g?",
     items_open_attachment    = "oo",   -- o: open
     items_open_url           = "ob",
@@ -175,13 +174,9 @@ require("zotero").setup({
     goto_trash               = "gd",
 
     -- Collections pane
-    collections_move_down       = "j",
-    collections_move_up         = "k",
     collections_next_section    = "]]",
     collections_prev_section    = "[[",
     collections_select          = "<CR>",
-    collections_focus_items     = "<Tab>",
-    collections_focus_items_esc = "<Esc>",
     collections_new             = "aa",
     collections_delete          = "dd",
     collections_tag_colour      = "cc",
@@ -221,11 +216,9 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 
 | Key               | Action                                                     |
 | ----------------- | ---------------------------------------------------------- |
-| `j` / `k`         | Navigate up/down                                           |
 | `]]` / `[[`       | Next / previous section                                    |
 | `<CR>`            | Select collection / expand-collapse / open feed, Trash or Marked (on Feeds: open/close it) |
 | `zo` `zc` `za` `zR` `zM` … | Vim's fold commands: open/close sections and collections |
-| `<Tab>` / `<Esc>` | Focus items pane                                           |
 | `aa`              | Add a collection (on Feeds or a feed: add a feed)          |
 | `dd`              | Trash the collection (on a feed: unsubscribe; on a tag: delete it from all items; on a visual selection of tags: delete them all) |
 | `cc`              | On a tag: assign/remove its colour and number key (1–9), like Zotero's "Assign Colour…" |
@@ -238,10 +231,8 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 
 | Key         | Action                                                  |
 | ----------- | ------------------------------------------------------- |
-| `j` / `k`   | Navigate up/down                                        |
 | `<CR>`      | Show item detail                                        |
 | `R`         | Refresh (in a feed: fetch new items first)              |
-| `<Tab>`     | Focus collections pane                                  |
 | `oo` / `ob` | Open attached file / open URL or DOI in the browser     |
 | `yk` / `yp` | Yank citation key / full path of the attached file (use `"+yk` for the clipboard) |
 | `ee` / `ef` | Edit metadata / fix attachment or update from a DOI     |
