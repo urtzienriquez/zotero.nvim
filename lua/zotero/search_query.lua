@@ -9,6 +9,11 @@
 --   ft:a           search the full text of indexed PDFs instead
 --   author:a, title:a, year:a, tag:a, pub:a, abstract:a, doi:a, citekey:a
 --                  search only that field
+--   pub:^a, pub:a$, pub:"^a b$"
+--                  after a field prefix (not ft:, note: or year:), ^ and $
+--                  anchor to the start / end of the value: "^evolution$" is
+--                  exactly "Evolution". Tags and creators are checked one by
+--                  one (creators by last name or full name)
 --   author:"a OR b c AND d"
 --                  inside a prefixed quote, OR / | and AND / & combine
 --                  words and phrases for that one field (here: ("a" or
@@ -21,14 +26,31 @@
 -- parse() returns a list of AND-groups, each a list of OR-alternatives
 -- (terms). A term has a scope ("meta" when unprefixed), a negate flag, and
 -- its own AND-of-ORs of values (one value unless it's a prefixed quote with
--- operators); `-` negates the whole term:
+-- operators); `-` negates the whole term. A value may carry anchors:
 --   { { { scope = "author", negate = false,
---         groups = { { { text = "huey", phrase = false } } } }, ... }, ... }
+--         groups = { { { text = "huey", phrase = false, anchor_start = true } } } }, ... }, ... }
 local M = {}
 
 local SCOPES = {}
 for _, s in ipairs({ "note", "ft", "author", "title", "year", "tag", "pub", "abstract", "doi", "citekey" }) do
   SCOPES[s] = s
+end
+
+-- Field scopes whose values have a start and an end for ^ / $ to anchor to.
+local ANCHORABLE = { author = true, title = true, tag = true, pub = true, abstract = true, doi = true, citekey = true }
+
+-- Moves a leading ^ / trailing $ into anchor flags. A value that would be
+-- left empty ("^", "$", "^$") stays literal.
+local function read_anchors(value)
+  local text = value.text
+  local s = text:sub(1, 1) == "^"
+  local e = #text > 1 and text:sub(-1) == "$"
+  local inner = text:sub(s and 2 or 1, e and -2 or -1)
+  if (s or e) and vim.trim(inner) ~= "" then
+    value.text = vim.trim(inner)
+    value.anchor_start = s or nil
+    value.anchor_end = e or nil
+  end
 end
 
 -- Splits the query into raw tokens, keeping quoted phrases (with any `-` or
@@ -144,6 +166,13 @@ local function to_term(tok)
     term.groups = term.scope == "meta" and { { { text = inner, phrase = true } } } or quoted_groups(inner)
   else
     term.groups = { { { text = rest, phrase = false } } }
+  end
+  if ANCHORABLE[term.scope] then
+    for _, values in ipairs(term.groups) do
+      for _, value in ipairs(values) do
+        read_anchors(value)
+      end
+    end
   end
   return term
 end
