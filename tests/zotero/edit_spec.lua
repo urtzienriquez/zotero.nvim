@@ -380,3 +380,101 @@ describe("edit buffer :wq / :q (fixture db, mocked connector)", function()
     assert.is_false(vim.api.nvim_buf_is_valid(buf))
   end)
 end)
+
+describe("edit window rules", function()
+  local notes, orig_notify
+
+  before_each(function()
+    fixture.setup()
+    notes = {}
+    orig_notify = async_mod.notify
+    async_mod.notify = function(msg) notes[#notes + 1] = msg end
+  end)
+
+  after_each(function()
+    async_mod.notify = orig_notify
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_get_name(b):match("^zotero://edit/") then
+        vim.api.nvim_buf_delete(b, { force = true })
+      end
+    end
+    vim.cmd("silent! only")
+    fixture.teardown()
+  end)
+
+  local function edit_wins()
+    local out = {}
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local name = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w))
+      if name:match("^zotero://edit/") then out[#out + 1] = { win = w, name = name:match("[^/]+$") } end
+    end
+    return out
+  end
+
+  local function open(item_id, key)
+    edit.open_edit(item_id)
+    wait_until(function()
+      local w = edit_wins()[1]
+      return w and w.name == key and vim.b[vim.api.nvim_win_get_buf(w.win)].zotero_header_lines ~= nil
+    end)
+  end
+
+  it("uses one window, named after the item, and focuses it again for the same item", function()
+    local origin = vim.api.nvim_get_current_win()
+    open(2, "ART00002")
+    local first = edit_wins()
+    assert.equals(1, #first)
+    vim.api.nvim_set_current_win(origin)
+    edit.open_edit(2)
+    assert.equals(1, #edit_wins())
+    assert.equals(first[1].win, vim.api.nvim_get_current_win())
+  end)
+
+  it("loads another item into the same window when nothing is unsaved", function()
+    open(2, "ART00002")
+    local win = edit_wins()[1].win
+    local old_buf = vim.api.nvim_win_get_buf(win)
+    open(3, "ART00003")
+    local now = edit_wins()
+    assert.equals(1, #now)
+    assert.equals(win, now[1].win)
+    assert.is_false(vim.api.nvim_buf_is_valid(old_buf))
+    vim.wait(100)
+    assert.equals(win, vim.api.nvim_get_current_win()) -- focus stays in the edit window
+  end)
+
+  it("keeps unsaved edits: another item waits, with a notice", function()
+    open(2, "ART00002")
+    local buf = vim.api.nvim_win_get_buf(edit_wins()[1].win)
+    vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "" })
+    assert.is_true(vim.bo[buf].modified)
+    edit.open_edit(3)
+    vim.wait(300)
+    local now = edit_wins()
+    assert.equals(1, #now)
+    assert.equals("ART00002", now[1].name)
+    assert.is_true(vim.bo[buf].modified)
+    assert.matches("unsaved changes in the edit window", notes[#notes])
+  end)
+
+  it("spans the whole width, at the bottom or top as 'splitbelow' says (like fugitive)", function()
+    local saved = vim.o.splitbelow
+    vim.cmd("vsplit") -- two side-by-side windows, like the library's panes
+    for _, below in ipairs({ true, false }) do
+      vim.o.splitbelow = below
+      open(2, "ART00002")
+      local win = edit_wins()[1].win
+      assert.equals(vim.o.columns, vim.api.nvim_win_get_width(win))
+      local row = vim.api.nvim_win_get_position(win)[1]
+      for _, other in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if other ~= win then
+          local other_row = vim.api.nvim_win_get_position(other)[1]
+          assert.is_true(below and row > other_row or (not below and row < other_row))
+        end
+      end
+      vim.api.nvim_buf_delete(vim.api.nvim_win_get_buf(win), { force = true })
+      vim.wait(50)
+    end
+    vim.o.splitbelow = saved
+  end)
+end)

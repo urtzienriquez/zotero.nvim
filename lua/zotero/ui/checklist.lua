@@ -106,17 +106,18 @@ function M.open(spec)
     width = math.max(width, vim.fn.strdisplaywidth(l))
   end
   local footer = spec.footer or " <CR> toggle · o only · a all · q close · g? help "
-  width = math.min(math.max(width, vim.fn.strdisplaywidth(footer)), vim.o.columns - 4)
-  local height = math.min(#lines, vim.o.lines - 6)
+  width = math.max(width, vim.fn.strdisplaywidth(footer))
+  local height = #lines
+  local config = backdrop_mod.center(width, height)
 
   -- Dim the rest of the screen, like the item preview does.
   state.backdrop = backdrop_mod.open()
   state.win = vim.api.nvim_open_win(state.buf, true, {
     relative = "editor",
-    width = width,
-    height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
+    width = config.width,
+    height = config.height,
+    row = config.row,
+    col = config.col,
     style = "minimal",
     border = "rounded",
     title = spec.title,
@@ -126,6 +127,7 @@ function M.open(spec)
     zindex = 50,
   })
   winopt.set(state.win, "cursorline", true)
+  backdrop_mod.follow_resize(state.win, state.backdrop, function() return width, height end)
 
   local function map(lhs, fn, desc)
     vim.keymap.set("n", lhs, fn, { buffer = state.buf, silent = true, nowait = true, desc = desc })
@@ -174,7 +176,7 @@ function M.open(spec)
   map("<Esc>", M.close, "close")
   map("g?", function()
     M.close()
-    vim.cmd.help(spec.help_tag)
+    winopt.help(spec.help_tag)
   end, "open help")
 
   vim.api.nvim_create_autocmd("WinLeave", {

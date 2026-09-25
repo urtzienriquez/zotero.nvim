@@ -89,6 +89,57 @@ describe("detail.show_item / close / is_open (real headless buffers/windows)", f
     assert.equals(0, backdrop_count())
   end)
 
+  local function float_with(zindex)
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local cfg = vim.api.nvim_win_get_config(w)
+      if cfg.relative ~= "" and cfg.zindex == zindex then return w, cfg end
+    end
+  end
+
+  it("closes, with its backdrop, when focus leaves it", function()
+    local origin = vim.api.nvim_get_current_win()
+    detail.show_item(2)
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    vim.api.nvim_set_current_win(origin)
+    vim.wait(1000, function() return not detail.is_open() end, 20)
+    assert.is_false(detail.is_open())
+    assert.equals(0, backdrop_count())
+  end)
+
+  it("is as tall as its text once wrapped", function()
+    local columns, lines_before = vim.o.columns, vim.o.lines
+    vim.o.columns, vim.o.lines = 60, 50 -- narrow, so text wraps; tall, so it all fits
+    detail.show_item(2)
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    local win = float_with(50)
+    local lines = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
+    local wrapped = vim.api.nvim_win_text_height(win, {}).all
+    assert.is_true(wrapped > lines) -- something did wrap
+    assert.equals(wrapped, vim.api.nvim_win_get_height(win))
+    detail.close()
+    vim.o.columns, vim.o.lines = columns, lines_before
+  end)
+
+  it("stays centered and the backdrop covers the screen after a resize", function()
+    local columns, lines = vim.o.columns, vim.o.lines
+    vim.o.columns, vim.o.lines = 200, 50
+    detail.show_item(2)
+    vim.wait(2000, function() return detail.is_open() end, 20)
+    vim.o.columns, vim.o.lines = 90, 30
+    vim.api.nvim_exec_autocmds("VimResized", {})
+    local win, cfg = float_with(50)
+    local w, h = vim.api.nvim_win_get_width(win), vim.api.nvim_win_get_height(win)
+    local rows = vim.o.lines - vim.o.cmdheight
+    assert.is_true(w <= 90 - 4 and h <= rows - 4)
+    assert.equals(math.floor((90 - w) / 2), cfg.col)
+    assert.equals(math.floor((rows - h) / 2), cfg.row)
+    local bd = float_with(49)
+    assert.equals(90, vim.api.nvim_win_get_width(bd))
+    assert.equals(rows, vim.api.nvim_win_get_height(bd)) -- not over the command line
+    detail.close()
+    vim.o.columns, vim.o.lines = columns, lines
+  end)
+
   it("a second show_item() call for the same item supersedes the first (no leaked window)", function()
     detail.show_item(2)
     detail.show_item(2) -- rapid double-call, same item_id

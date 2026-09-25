@@ -1659,7 +1659,7 @@ function M.set_keymaps()
     items_help_yank = "zotero-items-yank-maps",
   }) do
     map("n", name, function()
-      vim.cmd.help(tag)
+      winopt.help(tag)
     end, "help: " .. tag)
   end
 
@@ -1726,7 +1726,7 @@ function M.set_keymaps()
 end
 
 function M.show_help()
-  vim.cmd.help("zotero-items-maps")
+  winopt.help("zotero-items-maps")
 end
 
 function M.get_current_item()
