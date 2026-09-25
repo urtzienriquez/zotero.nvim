@@ -1,6 +1,7 @@
 local M = {}
 
-local async_mod = require("zotero.async")
+-- Loaded on first use, not by setup(): indexing the proxy requires it.
+local async_mod = setmetatable({}, { __index = function(_, k) return require("zotero.async")[k] end })
 
 function M.open_library()
   local cfg = require("zotero.config").get()

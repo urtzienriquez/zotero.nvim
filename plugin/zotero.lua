@@ -3,8 +3,13 @@ if vim.g.loaded_zotero == 1 then
 end
 vim.g.loaded_zotero = 1
 
-local async_mod = require("zotero.async")
-local db = require("zotero.db")
+-- Modules load on first use (a command run), not at startup: indexing one of
+-- these proxies requires the real module then.
+local function lazy(name)
+  return setmetatable({}, { __index = function(_, k) return require(name)[k] end })
+end
+local async_mod = lazy("zotero.async")
+local db = lazy("zotero.db")
 
 vim.api.nvim_create_user_command("Zotero", function()
   require("zotero").open_library()
