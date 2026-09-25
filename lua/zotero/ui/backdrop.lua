@@ -1,6 +1,7 @@
 -- Full-screen dimmed window placed just under a floating window (zindex 49,
 -- floats use 50). Shared by the item preview and the item-type checklist.
 local M = {}
+local winopt = require("zotero.ui.winopt")
 
 -- Returns a handle to pass to M.close().
 function M.open()
@@ -17,8 +18,8 @@ function M.open()
     zindex = 49,
     focusable = false,
   })
-  vim.wo[win].winhl = "Normal:ZoteroDetailBackdrop"
-  vim.wo[win].winblend = 60
+  winopt.set(win, "winhl", "Normal:ZoteroDetailBackdrop")
+  winopt.set(win, "winblend", 60)
   return { win = win, buf = buf }
 end
 

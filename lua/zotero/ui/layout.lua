@@ -2,6 +2,7 @@ local M = {}
 local async_mod = require("zotero.async")
 
 local detail = require("zotero.ui.detail")
+local winopt = require("zotero.ui.winopt")
 
 local state = {
   collections_buf = nil,
@@ -30,15 +31,15 @@ local function apply_statuscolumn(win)
   end
   for _, w in ipairs(wins) do
     if statuscolumn_visible then
-      vim.wo[w].signcolumn = "yes"
-      vim.wo[w].number = true
-      vim.wo[w].relativenumber = true
-      vim.wo[w].statuscolumn = ""
+      winopt.set(w, "signcolumn", "yes")
+      winopt.set(w, "number", true)
+      winopt.set(w, "relativenumber", true)
+      winopt.set(w, "statuscolumn", "")
     else
-      vim.wo[w].signcolumn = "no"
-      vim.wo[w].number = false
-      vim.wo[w].relativenumber = false
-      vim.wo[w].statuscolumn = ""
+      winopt.set(w, "signcolumn", "no")
+      winopt.set(w, "number", false)
+      winopt.set(w, "relativenumber", false)
+      winopt.set(w, "statuscolumn", "")
     end
   end
 end
@@ -85,9 +86,9 @@ function M.create_layout()
     pcall(vim.api.nvim_buf_delete, scratch_buf, { force = true })
   end
   local tabpage = vim.api.nvim_win_get_tabpage(items_win)
-  vim.wo[items_win].wrap = false
-  vim.wo[items_win].spell = false
-  vim.wo[items_win].cursorline = true
+  winopt.set(items_win, "wrap", false)
+  winopt.set(items_win, "spell", false)
+  winopt.set(items_win, "cursorline", true)
   apply_statuscolumn(items_win)
 
   local collections_win = nil
@@ -97,8 +98,8 @@ function M.create_layout()
       win = items_win,
       width = collections_width,
     })
-    vim.wo[collections_win].spell = false
-    vim.wo[collections_win].cursorline = true
+    winopt.set(collections_win, "spell", false)
+    winopt.set(collections_win, "cursorline", true)
     apply_statuscolumn(collections_win)
   end
 
@@ -221,7 +222,7 @@ function M.toggle_collections()
       width = collections_width,
     })
     collections_hidden = false
-    vim.wo[state.collections_win].cursorline = true
+    winopt.set(state.collections_win, "cursorline", true)
     apply_statuscolumn(state.collections_win)
     require("zotero.ui.collections").render()
   end

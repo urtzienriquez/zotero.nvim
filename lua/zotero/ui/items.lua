@@ -5,6 +5,7 @@ local types = require("zotero.types")
 local layout = require("zotero.ui.layout")
 local cfg_mod = require("zotero.config")
 local async_mod = require("zotero.async")
+local winopt = require("zotero.ui.winopt")
 
 local items_data = {}
 local cursor_line = 1
@@ -810,7 +811,7 @@ function M.update_status()
   if show_only_marked then
     info = info .. "  [marked only]"
   end
-  vim.wo[win].winbar = info
+  winopt.set(win, "winbar", info)
 end
 
 local function item_under_cursor()

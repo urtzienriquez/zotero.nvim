@@ -8,6 +8,7 @@
 local M = {}
 
 local backdrop_mod = require("zotero.ui.backdrop")
+local winopt = require("zotero.ui.winopt")
 
 local state = { id = nil, spec = nil, buf = nil, win = nil, backdrop = nil }
 
@@ -124,7 +125,7 @@ function M.open(spec)
     footer_pos = "center",
     zindex = 50,
   })
-  vim.wo[state.win].cursorline = true
+  winopt.set(state.win, "cursorline", true)
 
   local function map(lhs, fn, desc)
     vim.keymap.set("n", lhs, fn, { buffer = state.buf, silent = true, nowait = true, desc = desc })

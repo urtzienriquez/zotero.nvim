@@ -4,6 +4,7 @@ local db = require("zotero.db")
 local layout = require("zotero.ui.layout")
 local items = require("zotero.ui.items")
 local async_mod = require("zotero.async")
+local winopt = require("zotero.ui.winopt")
 
 local collections_data = {}
 local selected_collection_id = nil
@@ -288,26 +289,17 @@ function M.foldtext()
   }
 end
 
--- Like :setlocal. `vim.wo[win].x = v` is :set, which also changes the
--- global value: that leaks our fold settings into the user's config, and a
--- global foldminlines change makes Neovim's treesitter folding refresh
--- every buffer it knows, which can fail on one that's already wiped
--- ("Invalid buffer id" from treesitter/_fold.lua's OptionSet handler).
-local function setlocal(win, name, value)
-  vim.api.nvim_set_option_value(name, value, { win = win, scope = "local" })
-end
-
 local function setup_folds(win)
   if vim.w[win].zotero_folds then
     return
   end
-  setlocal(win, "foldmethod", "expr")
-  setlocal(win, "foldexpr", "v:lua.require'zotero.ui.collections'.foldexpr(v:lnum)")
-  setlocal(win, "foldtext", "v:lua.require'zotero.ui.collections'.foldtext()")
-  setlocal(win, "foldenable", true)
-  setlocal(win, "foldminlines", 0) -- a section with a single entry can still close
-  setlocal(win, "foldlevel", 99)
-  setlocal(win, "fillchars", "fold: ")
+  winopt.set(win, "foldmethod", "expr")
+  winopt.set(win, "foldexpr", "v:lua.require'zotero.ui.collections'.foldexpr(v:lnum)")
+  winopt.set(win, "foldtext", "v:lua.require'zotero.ui.collections'.foldtext()")
+  winopt.set(win, "foldenable", true)
+  winopt.set(win, "foldminlines", 0) -- a section with a single entry can still close
+  winopt.set(win, "foldlevel", 99)
+  winopt.set(win, "fillchars", "fold: ")
   vim.w[win].zotero_folds = true
 end
 
