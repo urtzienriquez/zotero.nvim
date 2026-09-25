@@ -51,6 +51,8 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - A local Zotero database at one of the standard locations: `~/Zotero/zotero.sqlite`, `~/.zotero/zotero.sqlite`, `~/.local/share/zotero/zotero.sqlite`
 - **Zotero Connector**: In Zotero, enable _Settings → Advanced → Allow other applications on this computer to communicate with Zotero_ (required for every Connector-based feature, whether it needs the companion plugin or not)
 
+Run `:checkhealth zotero` to check all of this: the tools, the database, whether Zotero is running (and what needs it), the companion add-on's version and Better BibTeX.
+
 ## Installation
 
 These instructions install the **`v0` branch** (Neovim 0.10 and newer). Then run `:Zotero` or press `<leader>zz` to open.

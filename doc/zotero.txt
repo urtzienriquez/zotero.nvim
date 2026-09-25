@@ -51,6 +51,10 @@ REQUIREMENTS                                            *zotero-requirements*
     ~/.zotero/zotero.sqlite
     ~/.local/share/zotero/zotero.sqlite
 
+  Run `:checkhealth zotero` to check all of this: the tools, the database,
+  whether Zotero is running (and what needs it), the companion add-on's
+  version and Better BibTeX.
+
 ==============================================================================
 INSTALLATION                                            *zotero-installation*
 
