@@ -31,7 +31,7 @@ Neovim plugin for browsing your Zotero library. Reads the SQLite database direct
 - Tags like in Zotero: `t1`–`t9` toggle your Zotero colored tags on the item(s)
   (coloured ● dots show them in the list), `tt` opens a checklist to add or remove
   several tags at once (`cc` assigns a colour, `dd` deletes a tag), and `fT` or the
-  Tags section of the collections pane filter the list by tag
+  Tags section of the collections split filter the list by tag
 - PDF import via Zotero Connector API with duplicate detection
 - Add items by identifier (DOI, ISBN, PMID, arXiv)
 - Add PDF attachments to existing items
@@ -162,7 +162,6 @@ require("zotero").setup({
     items_toggle_colored_tag = "t",    -- t1..t9: Zotero colored tag N
     items_toggle_tag         = "tt",
     items_toggle_columns     = "tv",   -- t: toggle view
-    items_toggle_collections = "tc",
     toggle_statuscolumn      = "ts",
     items_help_open          = "o?",   -- <family>?: :help for that family
     items_help_edit          = "e?",
@@ -171,7 +170,8 @@ require("zotero").setup({
     items_help_filter        = "f?",
     items_help_toggle        = "t?",
     items_help_yank          = "y?",
-    items_show_only_marked   = "gm",   -- g: navigation (both panes)
+    items_open_collections   = "gb",   -- g: navigation; gb browses the collections (split)
+    items_show_only_marked   = "gm",
     goto_library             = "gl",
     goto_feeds               = "gf",
     goto_trash               = "gd",
@@ -184,7 +184,7 @@ require("zotero").setup({
     collections_delete          = "dd",
     collections_tag_colour      = "cc",
     collections_refresh         = "R",
-    collections_toggle_pane     = "tc",
+    collections_close           = "gq",
     collections_show_help       = "g?",
     -- Edit buffer (ee); save with :w or :ZoteroSave
     edit_regenerate_key         = "gK",
@@ -196,7 +196,7 @@ require("zotero").setup({
 
 Column presets can be cycled with `tv`: configured, compact, normal, full. The preset determines which subset of the configured columns is shown.
 
-By default the Zotero panes hide the statuscolumn (no signcolumn, line numbers, or relative numbers). Press `ts` in either pane to toggle the full statuscolumn on/off for both panes.
+By default the items window hides the statuscolumn (no signcolumn, line numbers, or relative numbers); press `ts` there to toggle it. The collections split keeps your own settings, like fugitive's and sessman's windows.
 
 ## Keymaps
 
@@ -213,22 +213,24 @@ family, and `g?` at the whole list. The `g` prefix is only used for
 navigation. Every key can be remapped; see
 [Keeping the old keymaps](#keeping-the-old-keymaps).
 
-### Collections Pane
+### Collections Split
 
-My Library, Feeds, Tags and collections with sub-collections are real Vim folds, so `zo`/`zc`/`za`/`zR`/`zM` (and the rest of Vim's fold commands) work as usual. My Library and top-level collections start open, Feeds and Tags start folded, and the pane keeps your folds when it refreshes. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (the cursor stays in the pane, so you can combine tags).
+Zotero opens on the items list. `gb` ("browse") opens the collections list as a split across the whole width, at the bottom or the top as your `'splitbelow'` says (like fugitive's `:Git` status window). `<CR>` on an entry loads it and closes the split; `gq` closes it without choosing. Like fugitive's and sessman's windows, it starts with `Viewing:` (what the list shows), `Filter:` (search, tags or item types, when any) and `Help: g?`, and its colours link to standard highlight groups, so they follow your colorscheme.
+
+My Library, Feeds, Tags and collections with sub-collections are real Vim folds, so `zo`/`zc`/`za`/`zR`/`zM` (and the rest of Vim's fold commands) work as usual. My Library and top-level collections start open, Feeds and Tags start folded, and the split keeps your folds when it refreshes or reopens. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (`fT` combines several).
 
 | Key               | Action                                                     |
 | ----------------- | ---------------------------------------------------------- |
 | `]]` / `[[`       | Next / previous section                                    |
-| `<CR>`            | Select collection / expand-collapse / open feed, Trash or Marked (on Feeds: open/close it) |
+| `<CR>`            | Load the collection, feed, My Library, Marked or Trash and close the split (on the Feeds/Tags header: open/close it) |
 | `zo` `zc` `za` `zR` `zM` … | Vim's fold commands: open/close sections and collections |
 | `aa`              | Add a collection (on Feeds or a feed: add a feed)          |
 | `dd`              | Trash the collection (on a feed: unsubscribe; on a tag: delete it from all items; on a visual selection of tags: delete them all) |
 | `cc`              | On a tag: assign/remove its colour and number key (1–9), like Zotero's "Assign Colour…" |
 | `R`               | Refresh (on a feed: fetch new items; on Feeds: all feeds)  |
-| `tc` / `ts`       | Toggle collections pane / statuscolumn                     |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked items / Trash          |
-| `g?`              | Open `:help` at the collections-pane keymaps               |
+| `gq`              | Close the split                                            |
+| `g?`              | Open `:help` at the collections keymaps                    |
 
 ### Items Pane
 
@@ -254,7 +256,8 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `t1`…`t9`   | Toggle Zotero colored tag 1–9 on the item(s) (visual selection too) |
 | `tt`        | Checklist of the item(s)' tags: add/remove several at once, `n` for a new one |
 | `tv`        | Toggle column preset (configured/compact/normal/full)   |
-| `tc` / `ts` | Toggle collections pane / statuscolumn                  |
+| `ts`        | Toggle statuscolumn                                     |
+| `gb`        | Browse the collections: open the split (or go to it)    |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked only / Trash  |
 | `o?` `e?` `a?` `y?` `s?` `f?` `t?` | `:help` for that family         |
 | `g?`        | Open `:help` at the items-pane keymaps                  |
@@ -291,10 +294,10 @@ require("zotero").setup({
     items_search = "<leader>z/",          items_clear_search = "<leader>zc",
     items_filter_type = "<leader>zT",     items_show_only_marked = "<leader>zl",
     items_refresh = "<leader>zr",         items_toggle_columns = "<leader>zv",
-    items_toggle_collections = "<leader>zt",
+    items_open_collections = "<leader>zt",
     toggle_statuscolumn = "<leader>zg",
     collections_new = "<leader>zN",       collections_delete = "<leader>zD",
-    collections_refresh = "<leader>zr",   collections_toggle_pane = "<leader>zt",
+    collections_refresh = "<leader>zr",
     edit_regenerate_key = "<leader>zk",
   },
 })
@@ -316,7 +319,7 @@ require("zotero").setup({
 
 Zotero stores every feed (and every group) as its own library. zotero.nvim
 shows only your personal library under **My Library**; subscribed feeds get
-their own **Feeds** section in the collections pane, with unread counts
+their own **Feeds** section in the collections split (`gb`), with unread counts
 (shown as `Feeds (0)` until you subscribe to one).
 
 Managing feeds works like in Zotero's *New Feed → From URL*:
@@ -329,7 +332,7 @@ Managing feeds works like in Zotero's *New Feed → From URL*:
 - `dd` on a feed unsubscribes (its items are removed, as in Zotero).
 - `R` on a feed fetches new items now; on the Feeds header (or
   `:ZoteroRefreshFeeds`) it refreshes all feeds. `R` in the items
-  pane while viewing a feed refreshes that feed.
+  list while viewing a feed refreshes that feed.
 
 Press `<CR>` on a feed to list its items. On a feed item, `<CR>` opens the
 preview (abstract and details) and `ob` opens its link

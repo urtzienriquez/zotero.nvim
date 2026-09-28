@@ -19,8 +19,9 @@ zotero.nvim is a Neovim plugin that lets you browse your Zotero library
 without leaving the editor. It provides a full-featured buffer-based UI
 inspired by the Zotero desktop application, with:
 
-  - A collections tree (left pane) with expand/collapse and item counts
-  - An items list (right pane) with configurable columns and presets
+  - An items list with configurable columns and presets
+  - A collections tree, opened on demand as a split (`gb`), with folds and
+    item counts
   - A detail panel showing full metadata, abstract, tags, notes, and
     attachments
   - Search across your entire library
@@ -126,7 +127,6 @@ CONFIGURATION                                            *zotero-config*
         items_toggle_colored_tag = "t",    -- t1..t9: colored tag N
         items_toggle_tag         = "tt",
         items_toggle_columns     = "tv",   -- t: toggle view
-        items_toggle_collections = "tc",
         toggle_statuscolumn      = "ts",
         items_help_open          = "o?",   -- <family>?: help
         items_help_edit          = "e?",
@@ -135,7 +135,8 @@ CONFIGURATION                                            *zotero-config*
         items_help_filter        = "f?",
         items_help_toggle        = "t?",
         items_help_yank          = "y?",
-        items_show_only_marked   = "gm",   -- g: navigation
+        items_open_collections   = "gb",   -- g: navigation; gb: collections split
+        items_show_only_marked   = "gm",
         goto_library             = "gl",
         goto_feeds               = "gf",
         goto_trash               = "gd",
@@ -148,7 +149,7 @@ CONFIGURATION                                            *zotero-config*
         collections_delete          = "dd",
         collections_tag_colour      = "cc",
         collections_refresh         = "R",
-        collections_toggle_pane     = "tc",
+        collections_close           = "gq",
         collections_show_help       = "g?",
         -- Edit buffer (ee); save with :w or :ZoteroSave
         edit_regenerate_key         = "gK",
@@ -208,25 +209,54 @@ Open the Zotero library browser with:
 
 Or use the default keymap: |zotero-keymaps|
 
-The browser opens in its own tab, with a split layout:
+The browser opens in its own tab showing the items list. Press `gb` to
+open the collections list as a split across the whole width, at the
+bottom or the top as your 'splitbelow' says (like fugitive's |:Git|
+status window):
 
 >ascii
-  ┌──────────────┬──────────────────────────────────────┐
-  │ My Library   │  #  Title          Author  Year Type │
-  │ ├─ Biology   │  1  Paper A ...    Smith   2024 art  │
-  │ ├─ Chemistry │  2  Paper B ...    Jones   2023 art  │
-  │ └─ Physics   │                                      │
-  ├──────────────┴──────────────────────────────────────┤
-  │  Title: Paper A                                      │
-  │  Authors: Smith, John                                │
-  │  Abstract: ...                                       │
-  └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────┐
+  │  #  Title                Authors        Year Journal │
+  │  1  Paper A ...          Smith          2024 Nature  │
+  │  2  Paper B ...          Jones          2023 Science │
+  ├──────────────────────────────────────────────────────┤
+  │ Viewing: Biology                                     │
+  │ Filter:  tags to-read                                │
+  │ Help:    g?                                          │
+  │                                                      │
+  │ ▼ My Library (1546)                                  │
+  │   ▼ Biology (120)                                    │
+  │       Genetics (31)                                  │
+  │     Chemistry (80)                                   │
+  │                                                      │
+  │ ▶ Feeds (3)                                          │
+  │                                                      │
+  │ ▶ Tags (42)                                          │
+  │                                                      │
+  │   Marked (0)                                         │
+  │   Trash (5)                                          │
+  └──────────────────────────────────────────────────────┘
 <
 
-Collections Pane~
-  Navigate the tree with |j|/|k|. Press |<CR>| to select a
-  collection (loads its items) or expand/collapse if it has children.
-  Jump between sections (My Library, Feeds, Marked, Trash) with |]]|/|[[|.
+Collections split~
+  Like fugitive's status window and sessman's pane, it starts with a few
+  header lines: `Viewing:` what the items list shows, `Filter:` what
+  narrows it (a search, tags, item types; only when there is one), and
+  `Help:` the key for this help. Its colours link to standard highlight
+  groups (Label, PreProc, Comment, Tag, Directory, WarningMsg), so they
+  follow your colorscheme. Its sign and number columns are left to your
+  own settings ('signcolumn', 'number'...), as in fugitive and sessman
+  windows. To change a colour, define the group yourself
+  (ZoteroCollectionsLabel, ZoteroCollectionsHeading,
+  ZoteroCollectionsCount, ZoteroCollectionsValue, ZoteroCollectionsFilter,
+  ZoteroCollectionsHelp, ZoteroCollectionArrow).
+
+  Press |<CR>| on a collection (or My Library, a feed, Marked, Trash, a
+  tag) to load it: the split closes and you're back in the items list.
+  `gq` closes it without choosing. Sections and collections with
+  sub-collections are real Vim folds (|za|, |zo|, |zc|...); |]]|/|[[| jump
+  between sections. The split remembers its folds and cursor for the next
+  time you open it.
 
 Feeds~                                                        *zotero-feeds*
   Zotero stores each feed (and each group) as a separate library; only
@@ -430,8 +460,8 @@ Tags~                                                          *zotero-tags*
   - `tt` opens a checklist of all tags showing which ones the item(s)
     have, to add or remove several at once (see |zotero-tag-assign|).
   - `fT` filters the items list by tag (see |zotero-tag-filter|); the
-    collections pane has a Tags section (folded by default) where <CR> on
-    a tag adds it to / removes it from that same filter.
+    collections split (`gb`) has a Tags section (folded by default) where
+    <CR> on a tag adds it to / removes it from that same filter.
   - `cc` on a tag (in the Tags section or the `tt` window) assigns or
     removes its colour and number key, like "Assign Colour…" in Zotero:
     pick one of Zotero's 9 colours, then its number (1-9). Zotero allows
@@ -496,28 +526,29 @@ e = edit, a = add, y = yank, s = sort, f = filter, t = toggle view), and
 `<family>?` opens help at that family. The g prefix is reserved for
 navigation, never for actions.
 
-Collections Pane~                                  *zotero-collections-maps*
+Collections split~                                 *zotero-collections-maps*
+  Opened with `gb` ("browse") from the items list (see |zotero-usage|).
   ]] / [[         Next / previous section
-  <CR>            Select collection, feed, Marked or Trash (loads items);
-                  on a collection with children, also expand/collapse;
-                  on the Feeds header, open/close Feeds
+  <CR>            Load the collection, feed, My Library, Marked or Trash
+                  and close the split; on the Feeds or Tags header,
+                  open/close it (the split stays)
   zo zc za zR zM  Vim's own fold commands: My Library, Feeds, Tags and
                   collections with sub-collections are real folds (so zO,
                   zC, zA, zj/zk, [z/]z, zv... work too). My Library and
                   top-level collections start open, Feeds, Tags and deeper
-                  collections start closed; the pane keeps your folds
-                  when it refreshes.
-  <CR> on a tag   Add it to / remove it from the tag filter (focus stays
-                  here, so several tags can be combined; see |zotero-tags|)
+                  collections start closed; the split keeps your folds
+                  when it refreshes or reopens.
+  <CR> on a tag   Add it to / remove it from the tag filter and close the
+                  split (`fT` combines several; see |zotero-tags|)
   cc on a tag     Assign/remove its colour and number key (1-9)
   dd on a tag     Delete it from all items (asks first); on a visual
                   selection of tags, delete all of them
   aa              Add a collection (on Feeds or a feed: add a feed)
   dd              Trash the collection (on a feed: unsubscribe)
   R               Refresh (on a feed: fetch new items; on Feeds: all)
-  tc              Toggle collections pane
-  ts              Toggle statuscolumn (signs, line numbers)
-  gl / gf / gm / gd   Go to My Library / Feeds / marked items / Trash
+  gl / gm / gd    Go to My Library / marked items / Trash (closes the split)
+  gf              Go to the Feeds section
+  gq              Close the split
   g?              Open this help
 
 Items Pane~                                              *zotero-items-maps*
@@ -534,8 +565,10 @@ Items Pane~                                              *zotero-items-maps*
   dd, cm, cr, mm and rr also work on a visual selection.
 
   Navigation~
+  gb              Browse the collections: open the split (or go to it); see
+                  |zotero-collections-maps|
   gl              Go to My Library
-  gf              Go to the Feeds section (collections pane)
+  gf              Go to the Feeds section (in the collections split)
   gm              Show only marked items (again: back)
   gd              Go to Trash ("deleted")
 
@@ -571,7 +604,6 @@ Filter~                                           *zotero-items-filter-maps*
 
 Toggle view~                                      *zotero-items-toggle-maps*
   tv              Column view (configured/compact/normal/full)
-  tc              Collections pane
   ts              Statuscolumn (signs, line numbers)
   t1 … t9         Toggle Zotero's colored tag 1-9 on the item(s); works on
                   a visual selection (see |zotero-tags|)
@@ -603,10 +635,10 @@ Old keymaps~                                         *zotero-legacy-keymaps*
         items_search = "<leader>z/",          items_clear_search = "<leader>zc",
         items_filter_type = "<leader>zT",     items_show_only_marked = "<leader>zl",
         items_refresh = "<leader>zr",         items_toggle_columns = "<leader>zv",
-        items_toggle_collections = "<leader>zt",
+        items_open_collections = "<leader>zt",
         toggle_statuscolumn = "<leader>zg",
         collections_new = "<leader>zN",       collections_delete = "<leader>zD",
-        collections_refresh = "<leader>zr",   collections_toggle_pane = "<leader>zt",
+        collections_refresh = "<leader>zr",
         edit_regenerate_key = "<leader>zk",
       },
     })
@@ -656,7 +688,7 @@ setup({opts})~
 
                                               *zotero-open_library()*
 open_library()~
-  Open the Zotero library browser in a new tab with a split layout.
+  Open the Zotero library browser (the items list) in a new tab.
 
                                                   *zotero-import_pdf()*
 import_pdf({path})~

@@ -47,9 +47,8 @@ M.defaults = {
     items_toggle_colored_tag = "t",
     items_toggle_tag = "tt",
     items_filter_tag = "fT",
-    -- t: toggle view (tc/ts work in the collections pane too)
+    -- t: toggle view (ts: sign/number columns of the items window)
     items_toggle_columns = "tv",
-    items_toggle_collections = "tc",
     toggle_statuscolumn = "ts",
     -- <family>?: :help at that family's section
     items_help_open = "o?",
@@ -59,7 +58,8 @@ M.defaults = {
     items_help_filter = "f?",
     items_help_toggle = "t?",
     items_help_yank = "y?",
-    -- g: navigation (both panes)
+    -- g: navigation (both windows); gb browses the collections (split)
+    items_open_collections = "gb",
     items_show_only_marked = "gm",
     goto_library = "gl",
     goto_feeds = "gf",
@@ -72,7 +72,7 @@ M.defaults = {
     collections_delete = "dd",
     collections_tag_colour = "cc",
     collections_refresh = "R",
-    collections_toggle_pane = "tc",
+    collections_close = "gq", -- like fugitive's status window and sessman
     collections_show_help = "g?",
     -- Edit buffer (ee); save with :w or :ZoteroSave
     edit_regenerate_key = "gK",
