@@ -647,7 +647,11 @@ local function commit_render(buf, items)
   end
 
   M.apply_highlights(buf)
-  vim.api.nvim_win_set_cursor(layout.get_items_win(), { cursor_line, 0 })
+  -- A render can finish after the library was closed.
+  local win = layout.get_items_win()
+  if win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+    vim.api.nvim_win_set_cursor(win, { cursor_line, 0 })
+  end
 
   return lines
 end

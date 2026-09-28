@@ -240,6 +240,18 @@ local function get_display_lines()
   return lines
 end
 
+-- The entries as drawn in the buffer, line by line. Lookups (the entry under
+-- the cursor, section jumps) must use these, not a fresh get_display_lines():
+-- the header follows the items view (Viewing:, Filter: comes and goes), so
+-- a recomputed list can be shifted against what's on screen until the next
+-- redraw.
+local function shown_entries()
+  if #rendered_entries > 0 then
+    return rendered_entries
+  end
+  return get_display_lines()
+end
+
 local function load_data()
   -- Launched before awaiting so the queries run concurrently.
   local t_collections = db.get_collections()
@@ -388,6 +400,10 @@ end
 -- then close bottom-up so nested folds close before their parents (zc on a
 -- line whose own fold is already closed would close the parent instead).
 local function apply_fold_state(win)
+  -- Only on the lines last drawn (the fold ids are per line).
+  if vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win)) ~= #rendered_entries then
+    return
+  end
   vim.api.nvim_win_call(win, function()
     local view = vim.fn.winsaveview()
     vim.cmd("silent! normal! zR")
@@ -488,7 +504,7 @@ function M.apply_highlights(buf)
   end
 
   -- Header lines and the section headings, fugitive/sessman style.
-  for i, dl in ipairs(get_display_lines()) do
+  for i, dl in ipairs(shown_entries()) do
     if lines[i] == dl.line then
       if dl.is_header then
         vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionsLabel", i - 1, 0, dl.label_len)
@@ -503,7 +519,7 @@ function M.apply_highlights(buf)
 
   -- Tags section: coloured dots and the ✓ of tags in the active filter.
   require("zotero.ui.highlights").set_tag_colors(colored_tags)
-  for i, dl in ipairs(get_display_lines()) do
+  for i, dl in ipairs(shown_entries()) do
     if dl.is_tag and lines[i] == dl.line then
       if dl.tag_active then
         vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemMarker", i - 1, 2, 2 + #"✓")
@@ -540,7 +556,7 @@ function M.refresh_counts()
 end
 
 function M.get_collection_at_line(line)
-  local display_lines = get_display_lines()
+  local display_lines = shown_entries()
   if line < 1 or line > #display_lines then
     return nil
   end
@@ -655,7 +671,7 @@ end
 function M.focus_feeds()
   layout.open_collections()
   M.set_section_open("feeds", true)
-  for i, dl in ipairs(get_display_lines()) do
+  for i, dl in ipairs(shown_entries()) do
     if dl.is_feeds_header then
       cursor_line = i
       vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
@@ -732,7 +748,7 @@ end
 
 -- Native j/k, so closed folds are skipped like in any buffer.
 local function jump_section(direction)
-  local display_lines = get_display_lines()
+  local display_lines = shown_entries()
   local win = layout.get_collections_win()
   if win and vim.api.nvim_win_is_valid(win) then
     cursor_line = current_line(win)

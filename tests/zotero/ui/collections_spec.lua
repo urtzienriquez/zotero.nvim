@@ -15,6 +15,11 @@ local function render_sync()
   -- Wait for this render itself: an items load left over from a previous
   -- test can redraw the split (its Viewing: line) with older data first.
   fixture.wait_for(collections.render())
+  -- A newer refresh (e.g. one a previous test's action started) supersedes
+  -- this render, which then skips drawing: wait for whichever draws.
+  vim.wait(3000, function()
+    return vim.api.nvim_buf_line_count(layout.get_collections_buf()) > 1
+  end, 20)
 end
 
 -- The Viewing:/Filter:/Help: lines at the top repeat names (the viewed
@@ -77,6 +82,7 @@ describe("collections (real buffers, fixture db)", function()
   end)
 
   after_each(function()
+    vim.wait(300, function() return false end, 20) -- let trailing async work settle
     layout.close()
     fixture.teardown()
   end)
