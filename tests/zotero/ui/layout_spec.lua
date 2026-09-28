@@ -135,6 +135,20 @@ describe("layout", function()
     assert.is_true(layout.is_open())
   end)
 
+  it("closing the collections as the last window shows the items there", function()
+    layout.create_layout()
+    vim.cmd("tabonly") -- the zotero tab is the only one
+    layout.open_collections()
+    vim.cmd("only")
+    assert.has_no.errors(layout.close_collections)
+    local win = vim.api.nvim_get_current_win()
+    assert.equals(layout.get_items_buf(), vim.api.nvim_win_get_buf(win))
+    assert.equals(win, layout.get_items_win())
+    assert.is_nil(layout.get_collections_win())
+    assert.is_true(layout.is_open())
+    assert.is_false(vim.wo[win].wrap)
+  end)
+
   it("toggle_statuscolumn() does not error with no layout open", function()
     assert.has_no.errors(function() layout.toggle_statuscolumn() end)
     layout.toggle_statuscolumn() -- toggle back to avoid bleeding state into other tests
