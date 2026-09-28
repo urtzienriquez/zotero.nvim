@@ -6,6 +6,7 @@ local winopt = require("zotero.ui.winopt")
 
 local state = {
   collections_buf = nil,
+  collections_closed = nil, -- id of the autocmd that saves its view
   items_buf = nil,
   collections_win = nil,
   items_win = nil,
@@ -37,6 +38,14 @@ local function apply_statuscolumn(win)
       winopt.set(w, "statuscolumn", "")
     end
   end
+end
+
+-- The items window's own options.
+local function set_items_options(win)
+  winopt.set(win, "wrap", false)
+  winopt.set(win, "spell", false)
+  winopt.set(win, "cursorline", true)
+  apply_statuscolumn(win)
 end
 
 function M.toggle_statuscolumn()
@@ -78,10 +87,7 @@ function M.create_layout()
     pcall(vim.api.nvim_buf_delete, scratch_buf, { force = true })
   end
   local tabpage = vim.api.nvim_win_get_tabpage(items_win)
-  winopt.set(items_win, "wrap", false)
-  winopt.set(items_win, "spell", false)
-  winopt.set(items_win, "cursorline", true)
-  apply_statuscolumn(items_win)
+  set_items_options(items_win)
 
   -- Only the items window: the collections list opens on demand as a
   -- split (gb, see M.open_collections).
@@ -164,7 +170,7 @@ function M.open_collections()
   end
   state.collections_win = win
   -- However it closes (<CR>, gq, :q), keep its folds and cursor for next time.
-  vim.api.nvim_create_autocmd("WinClosed", {
+  state.collections_closed = vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win),
     once = true,
     callback = function()
@@ -183,8 +189,13 @@ end
 function M.close_collections()
   local win = state.collections_win
   state.collections_win = nil
-  if win and vim.api.nvim_win_is_valid(win) then
-    vim.api.nvim_win_close(win, true)
+  if win and vim.api.nvim_win_is_valid(win) and not pcall(vim.api.nvim_win_close, win, true) then
+    -- The last window: it shows the items instead
+    require("zotero.ui.collections").save_view(win)
+    pcall(vim.api.nvim_del_autocmd, state.collections_closed)
+    vim.api.nvim_win_set_buf(win, state.items_buf)
+    set_items_options(win)
+    state.items_win = win
   end
   M.focus_items()
 end
