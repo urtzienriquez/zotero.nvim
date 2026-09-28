@@ -13,8 +13,6 @@ local state = {
   is_open = false,
 }
 
-local collections_hidden = false
-
 local statuscolumn_visible = false
 
 local function apply_statuscolumn(win)
@@ -72,9 +70,6 @@ function M.create_layout()
     vim.bo[items_buf].buflisted = false
   end
 
-  local total_width = vim.o.columns
-  local collections_width = math.max(25, math.floor(total_width * 0.2))
-
   vim.cmd("tabnew")
   local items_win = vim.api.nvim_get_current_win()
   local scratch_buf = vim.api.nvim_win_get_buf(items_win)
@@ -91,21 +86,11 @@ function M.create_layout()
   winopt.set(items_win, "cursorline", true)
   apply_statuscolumn(items_win)
 
-  local collections_win = nil
-  if not collections_hidden then
-    collections_win = vim.api.nvim_open_win(collections_buf, true, {
-      split = "left",
-      win = items_win,
-      width = collections_width,
-    })
-    winopt.set(collections_win, "spell", false)
-    winopt.set(collections_win, "cursorline", true)
-    apply_statuscolumn(collections_win)
-  end
-
+  -- Only the items window: the collections list opens on demand as a
+  -- split (gb, see M.open_collections).
   state.collections_buf = collections_buf
   state.items_buf = items_buf
-  state.collections_win = collections_win
+  state.collections_win = nil
   state.items_win = items_win
   state.tabpage = tabpage
   state.is_open = true
@@ -131,10 +116,10 @@ function M.set_keymaps()
   local toggle_lhs = km.toggle_statuscolumn
   if toggle_lhs then
     for _, buf in ipairs({ collections_buf, items_buf }) do
-      -- No nowait: the default (ts) shares the t prefix with tc/tv.
       vim.keymap.set("n", toggle_lhs, M.toggle_statuscolumn, {
         buffer = buf,
         silent = true,
+        nowait = true,
         desc = "toggle statuscolumn",
       })
     end
@@ -157,11 +142,55 @@ function M.get_items_win()
   return state.items_win
 end
 
-function M.focus_collections()
+-- Opens the collections list, like fugitive's status window or sessman's
+-- pane: a split across the whole width, at the bottom or the top as
+-- 'splitbelow' says. Already open: just moves the cursor there.
+function M.open_collections()
   if state.collections_win and vim.api.nvim_win_is_valid(state.collections_win) then
     vim.api.nvim_set_current_win(state.collections_win)
+    return
   end
+  if not (state.collections_buf and vim.api.nvim_buf_is_valid(state.collections_buf)) then
+    return
+  end
+  if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
+    vim.api.nvim_set_current_win(state.items_win)
+  end
+  vim.cmd(winopt.edge() .. " split")
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, state.collections_buf)
+  winopt.set(win, "wrap", false)
+  winopt.set(win, "spell", false)
+  winopt.set(win, "cursorline", true)
+  apply_statuscolumn(win)
+  state.collections_win = win
+  -- However it closes (<CR>, gq, :q), keep its folds and cursor for next time.
+  vim.api.nvim_create_autocmd("WinClosed", {
+    pattern = tostring(win),
+    once = true,
+    callback = function()
+      require("zotero.ui.collections").save_view(win)
+      if state.collections_win == win then
+        state.collections_win = nil
+      end
+    end,
+  })
+  -- Sets up the folds for this window and puts the cursor back where it was.
+  require("zotero.ui.collections").refresh_display()
 end
+
+-- Closes the collections split (gq, or after picking an entry) and goes
+-- back to the items window.
+function M.close_collections()
+  local win = state.collections_win
+  state.collections_win = nil
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+  M.focus_items()
+end
+
+M.focus_collections = M.open_collections
 
 function M.focus_items()
   if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
@@ -193,32 +222,6 @@ function M.is_open()
     return false
   end
   return true
-end
-
-function M.toggle_collections()
-  if not state.items_win or not vim.api.nvim_win_is_valid(state.items_win) then
-    return
-  end
-
-  if state.collections_win and vim.api.nvim_win_is_valid(state.collections_win) then
-    vim.api.nvim_win_close(state.collections_win, true)
-    state.collections_win = nil
-    collections_hidden = true
-  else
-    local total_width = vim.o.columns
-    local collections_width = math.max(25, math.floor(total_width * 0.2))
-    state.collections_win = vim.api.nvim_open_win(state.collections_buf, true, {
-      split = "left",
-      win = state.items_win,
-      width = collections_width,
-    })
-    collections_hidden = false
-    winopt.set(state.collections_win, "cursorline", true)
-    apply_statuscolumn(state.collections_win)
-    require("zotero.ui.collections").render()
-  end
-
-  require("zotero.ui.items").rerender()
 end
 
 function M.close()

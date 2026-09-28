@@ -145,6 +145,7 @@ describe("cc / dd keys", function()
   before_each(function()
     fixture.setup()
     layout.create_layout()
+    layout.open_collections() -- the split gb opens
     called = {}
     orig_colour, orig_delete = actions.assign_colour, actions.delete_tags
     actions.assign_colour = function(name) called[#called + 1] = { "colour", name } end

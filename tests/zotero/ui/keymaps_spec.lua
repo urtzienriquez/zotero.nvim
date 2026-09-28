@@ -96,11 +96,31 @@ describe("keymaps (real buffers, fixture db)", function()
       assert.does_not.match("Old Draft", items_text())
     end)
 
-    it("gd / gm from the collections pane load the view and focus the items pane", function()
+    it("gb opens the collections split (or focuses it), gq closes it; tc is gone", function()
+      layout.focus_items()
+      press("gb")
+      local win = layout.get_collections_win()
+      assert.is_not_nil(win)
+      assert.equals(win, vim.api.nvim_get_current_win())
+      layout.focus_items()
+      press("gb")
+      assert.equals(win, vim.api.nvim_get_current_win()) -- the same split, not a second one
+      press("gq")
+      assert.is_nil(layout.get_collections_win())
+      assert.equals(layout.get_items_win(), vim.api.nvim_get_current_win())
+      for _, buf in ipairs({ layout.get_items_buf(), layout.get_collections_buf() }) do
+        assert.is_true(vim.api.nvim_buf_call(buf, function()
+          return vim.fn.maparg("tc", "n", false, true).buffer ~= 1
+        end))
+      end
+    end)
+
+    it("gd / gm from the collections split load the view, close the split and focus the items", function()
       layout.focus_collections()
       press("gd")
       vim.wait(3000, function() return items_text():match("Old Draft") ~= nil end, 20)
       assert.equals(layout.get_items_win(), vim.api.nvim_get_current_win())
+      assert.is_nil(layout.get_collections_win())
 
       layout.focus_collections()
       press("gm")

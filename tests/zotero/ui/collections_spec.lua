@@ -46,6 +46,7 @@ describe("collections (real buffers, fixture db)", function()
   before_each(function()
     fixture.setup()
     layout.create_layout()
+    layout.open_collections() -- the split gb opens
     -- Fold state is module-level; start every test from the defaults.
     collections.reset_folds()
     -- Only when needed: set_tag_filter() starts an items reload, which would
@@ -111,23 +112,18 @@ describe("collections (real buffers, fixture db)", function()
     assert.equals(2, collections.get_selected_collection_id()) -- "Child of A" is collectionID 2
   end)
 
-  it("collapsing a collection with children hides its child rows", function()
+  it("<CR> on a collection loads it and closes the split, back to the items", function()
     render_sync()
     layout.focus_collections()
-    local function find_line(pattern)
-      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
-        if l:match(pattern) then return i end
-      end
+    for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
+      if l:match("Root A") then vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 }) end
     end
-
-    vim.api.nvim_win_set_cursor(layout.get_collections_win(), { find_line("Root A"), 0 })
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false) -- collapse (Root A has children, starts expanded)
-    assert.does_not.match("Child of A", screen_text())
-    assert.matches("▶ Root A", screen_text())
-
-    layout.focus_collections() -- <CR> on a collection moves focus to the items pane
-    vim.api.nvim_win_set_cursor(layout.get_collections_win(), { find_line("Root A"), 0 })
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false) -- re-expand
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+    assert.equals(1, collections.get_selected_collection_id()) -- Root A
+    assert.is_nil(layout.get_collections_win())
+    assert.equals(layout.get_items_win(), vim.api.nvim_get_current_win())
+    -- Its folds are unchanged: <CR> selects, za folds.
+    layout.open_collections()
     assert.matches("Child of A", screen_text())
   end)
 
@@ -199,7 +195,7 @@ describe("collections (real buffers, fixture db)", function()
       assert.is_false(loaded)
     end)
 
-    it("<CR> on My Library loads its items but does not fold it", function()
+    it("<CR> on My Library loads its items and closes the split, without folding it", function()
       render_sync()
       local items = require("zotero.ui.items")
       local loaded_with = "not called"
@@ -208,6 +204,8 @@ describe("collections (real buffers, fixture db)", function()
       press_on("My Library", "<CR>")
       items.load_items = orig
       assert.is_nil(loaded_with) -- load_items(nil) = the whole library
+      assert.is_nil(layout.get_collections_win())
+      layout.open_collections()
       assert.matches("▼ My Library", text())
       assert.matches("Root A", text())
     end)
@@ -232,16 +230,20 @@ describe("collections (real buffers, fixture db)", function()
       assert.matches("2 ● genetics %(1%)", text())
     end)
 
-    it("<CR> on a tag filters the items by it, marks it, and keeps focus here", function()
+    it("<CR> on a tag filters the items by it and closes the split; the tag shows as marked", function()
       render_sync()
       local items = require("zotero.ui.items")
       collections.set_section_open("tags", true)
       press_on("ecology", "<CR>")
       assert.same({ "ecology" }, items.get_tag_filter())
+      assert.is_nil(layout.get_collections_win())
+      layout.open_collections()
+      vim.wait(2000, function() return text():match("✓ 1 ● ecology") ~= nil end, 20)
       assert.matches("✓ 1 ● ecology", text())
-      assert.equals(layout.get_collections_win(), vim.api.nvim_get_current_win())
       press_on("ecology", "<CR>") -- again: removed from the filter
       assert.same({}, items.get_tag_filter())
+      layout.open_collections()
+      vim.wait(2000, function() return text():match("✓") == nil end, 20)
       assert.does_not.match("✓", text())
     end)
 

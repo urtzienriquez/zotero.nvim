@@ -1327,7 +1327,9 @@ function M.set_keymaps()
     if not lhs then
       return
     end
-    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
+    -- nowait: fire at once even when a longer global mapping starts with
+    -- the same keys (e.g. a user's own global mapping).
+    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = desc })
   end
 
   map("n", "items_show_detail", on_enter, "show detail")
@@ -1375,9 +1377,9 @@ function M.set_keymaps()
     toggle_sort("year")
   end, "sort by year")
 
-  map("n", "items_toggle_collections", function()
-    layout.toggle_collections()
-  end, "toggle collections pane")
+  map("n", "items_open_collections", function()
+    layout.open_collections()
+  end, "open collections")
 
   map("n", "items_sort_date_added", function()
     toggle_sort("dateAdded")
@@ -1635,7 +1637,7 @@ function M.set_keymaps()
     for n = 1, 9 do
       vim.keymap.set({ "n", "x" }, tag_prefix .. n, function()
         toggle_colored_tag(n)
-      end, { buffer = buf, silent = true, desc = "toggle colored tag " .. n })
+      end, { buffer = buf, silent = true, nowait = true, desc = "toggle colored tag " .. n })
     end
   end
 

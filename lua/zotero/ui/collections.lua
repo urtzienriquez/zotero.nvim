@@ -309,6 +309,11 @@ local function read_fold_state(win)
   if not vim.w[win].zotero_folds then
     return -- a fresh window has no folds yet; nothing to read
   end
+  -- Only while the buffer still holds what was last drawn: on other lines
+  -- foldclosed() says "open" for everything and would reopen closed folds.
+  if vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win)) ~= #rendered_entries then
+    return
+  end
   vim.api.nvim_win_call(win, function()
     for i, entry in ipairs(rendered_entries) do
       if entry.fold_id then
@@ -339,6 +344,15 @@ local function apply_fold_state(win)
     end
     vim.fn.winrestview(view)
   end)
+end
+
+-- Remembers the folds and the cursor of the collections split before it
+-- closes (the layout calls this on WinClosed), for the next time it opens.
+function M.save_view(win)
+  if win and vim.api.nvim_win_is_valid(win) then
+    read_fold_state(win)
+    cursor_line = vim.api.nvim_win_get_cursor(win)[1]
+  end
 end
 
 function M.refresh_display()
@@ -556,13 +570,10 @@ local function toggle_fold_at_cursor(win)
   end)
 end
 
--- Focuses the collections pane (showing it if hidden) with the cursor on
--- the Feeds header. Used by goto_feeds (gf) in both panes.
+-- Opens the collections split with the cursor on the Feeds header. Used by
+-- goto_feeds (gf) in both windows.
 function M.focus_feeds()
-  if not layout.get_collections_win() or not vim.api.nvim_win_is_valid(layout.get_collections_win()) then
-    layout.toggle_collections()
-  end
-  layout.focus_collections()
+  layout.open_collections()
   M.set_section_open("feeds", true)
   for i, dl in ipairs(get_display_lines()) do
     if dl.is_feeds_header then
@@ -571,6 +582,11 @@ function M.focus_feeds()
       return
     end
   end
+end
+
+-- Picking an entry closes the collections split and goes back to the items.
+local function leave()
+  layout.close_collections()
 end
 
 local function on_enter()
@@ -586,13 +602,13 @@ local function on_enter()
 
   if entry.is_trash then
     items.load_trash()
-    layout.focus_items()
+    leave()
     return
   end
 
   if entry.is_marked_items then
     items.load_marked()
-    layout.focus_items()
+    leave()
     return
   end
 
@@ -606,35 +622,32 @@ local function on_enter()
     return
   end
 
-  -- A tag: add it to / remove it from the items tag filter. Focus stays here
-  -- so several tags can be combined, like Zotero's tag selector.
+  -- A tag: add it to / remove it from the items tag filter (fT combines
+  -- several at once).
   if entry.is_tag then
     local filter = items.get_tag_filter()
     items.set_tag_filter(require("zotero.ui.tag_filter").toggle(filter, entry.tag_name))
+    leave()
     return
   end
 
   if entry.is_feed then
     selected_collection_id = nil
     items.load_feed(entry.feed_library_id, entry.feed_name)
-    layout.focus_items()
+    leave()
     return
   end
 
   if entry.is_all_items then
     selected_collection_id = nil
     items.load_items(nil)
-    layout.focus_items()
+    leave()
     return
-  end
-
-  if entry.has_children then
-    toggle_fold_at_cursor(win)
   end
 
   selected_collection_id = entry.collectionID
   items.load_items(entry.collectionID)
-  layout.focus_items()
+  leave()
 end
 
 -- Native j/k, so closed folds are skipped like in any buffer.
@@ -683,7 +696,9 @@ function M.set_keymaps()
     if not lhs then
       return
     end
-    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, desc = desc })
+    -- nowait: fire at once even when a longer global mapping starts with
+    -- the same keys (see items.lua).
+    vim.keymap.set(mode, lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = desc })
   end
 
   map("n", "collections_next_section", function()
@@ -696,9 +711,9 @@ function M.set_keymaps()
 
   map("n", "collections_select", on_enter, "select collection")
 
-  map("n", "collections_toggle_pane", function()
-    layout.toggle_collections()
-  end, "toggle collections pane")
+  map("n", "collections_close", function()
+    layout.close_collections()
+  end, "close")
 
   map("n", "collections_new", function()
     local entry = M.get_collection_at_line(current_line(vim.api.nvim_get_current_win()))
@@ -810,15 +825,15 @@ function M.set_keymaps()
   map("n", "goto_library", function()
     selected_collection_id = nil
     items.load_items(nil)
-    layout.focus_items()
+    leave()
   end, "go to My Library")
   map("n", "items_show_only_marked", function()
     items.load_marked()
-    layout.focus_items()
+    leave()
   end, "go to marked items")
   map("n", "goto_trash", function()
     items.load_trash()
-    layout.focus_items()
+    leave()
   end, "go to Trash")
   map("n", "goto_feeds", M.focus_feeds, "go to Feeds")
 end

@@ -254,7 +254,7 @@ function M.open_edit(item_id)
     local function map(name, rhs, desc)
       local lhs = km.enabled ~= false and km[name]
       if lhs then
-        vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, desc = desc })
+        vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = desc })
       end
     end
 
