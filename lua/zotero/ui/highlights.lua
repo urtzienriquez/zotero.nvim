@@ -5,7 +5,16 @@ function M.setup()
 
   hl(0, "ZoteroDetailBackdrop", { bg = "Black" })
   hl(0, "ZoteroItemCount", { fg = "#888888" })
-  hl(0, "ZoteroCollectionArrow", { fg = "#666666" })
+  -- The collections split looks like fugitive's status window and sessman's
+  -- pane, with the same standard groups, so it follows the colorscheme.
+  -- `default`: a user's own definition wins.
+  hl(0, "ZoteroCollectionArrow", { link = "Comment", default = true })
+  hl(0, "ZoteroCollectionsLabel", { link = "Label", default = true }) -- Viewing: Filter: Help:
+  hl(0, "ZoteroCollectionsValue", { link = "Directory", default = true })
+  hl(0, "ZoteroCollectionsFilter", { link = "WarningMsg", default = true })
+  hl(0, "ZoteroCollectionsHelp", { link = "Tag", default = true })
+  hl(0, "ZoteroCollectionsHeading", { link = "PreProc", default = true }) -- My Library, Feeds, Tags
+  hl(0, "ZoteroCollectionsCount", { link = "Comment", default = true })
 
   hl(0, "ZoteroHeader", { bold = true, fg = "#ffffff" })
   hl(0, "ZoteroLabel", { bold = true, fg = "#88aaff" })

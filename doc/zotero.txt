@@ -220,14 +220,35 @@ status window):
   │  1  Paper A ...          Smith          2024 Nature  │
   │  2  Paper B ...          Jones          2023 Science │
   ├──────────────────────────────────────────────────────┤
+  │ Viewing: Biology                                     │
+  │ Filter:  tags to-read                                │
+  │ Help:    g?                                          │
+  │                                                      │
   │ ▼ My Library (1546)                                  │
   │   ▼ Biology (120)                                    │
+  │       Genetics (31)                                  │
   │     Chemistry (80)                                   │
+  │                                                      │
   │ ▶ Feeds (3)                                          │
+  │                                                      │
+  │ ▶ Tags (42)                                          │
+  │                                                      │
+  │   Marked (0)                                         │
+  │   Trash (5)                                          │
   └──────────────────────────────────────────────────────┘
 <
 
 Collections split~
+  Like fugitive's status window and sessman's pane, it starts with a few
+  header lines: `Viewing:` what the items list shows, `Filter:` what
+  narrows it (a search, tags, item types; only when there is one), and
+  `Help:` the key for this help. Its colours link to standard highlight
+  groups (Label, PreProc, Comment, Tag, Directory, WarningMsg), so they
+  follow your colorscheme; to change one, define the group yourself
+  (ZoteroCollectionsLabel, ZoteroCollectionsHeading,
+  ZoteroCollectionsCount, ZoteroCollectionsValue, ZoteroCollectionsFilter,
+  ZoteroCollectionsHelp, ZoteroCollectionArrow).
+
   Press |<CR>| on a collection (or My Library, a feed, Marked, Trash, a
   tag) to load it: the split closes and you're back in the items list.
   `gq` closes it without choosing. Sections and collections with

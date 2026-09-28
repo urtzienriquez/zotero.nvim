@@ -214,7 +214,7 @@ navigation. Every key can be remapped; see
 
 ### Collections Split
 
-Zotero opens on the items list. `gb` ("browse") opens the collections list as a split across the whole width, at the bottom or the top as your `'splitbelow'` says (like fugitive's `:Git` status window). `<CR>` on an entry loads it and closes the split; `gq` closes it without choosing.
+Zotero opens on the items list. `gb` ("browse") opens the collections list as a split across the whole width, at the bottom or the top as your `'splitbelow'` says (like fugitive's `:Git` status window). `<CR>` on an entry loads it and closes the split; `gq` closes it without choosing. Like fugitive's and sessman's windows, it starts with `Viewing:` (what the list shows), `Filter:` (search, tags or item types, when any) and `Help: g?`, and its colours link to standard highlight groups, so they follow your colorscheme.
 
 My Library, Feeds, Tags and collections with sub-collections are real Vim folds, so `zo`/`zc`/`za`/`zR`/`zM` (and the rest of Vim's fold commands) work as usual. My Library and top-level collections start open, Feeds and Tags start folded, and the split keeps your folds when it refreshes or reopens. In the Tags section, `<CR>` on a tag adds it to or removes it from the tag filter (`fT` combines several).
 

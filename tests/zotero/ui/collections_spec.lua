@@ -12,13 +12,30 @@ local function render_sync()
     vim.api.nvim_buf_set_lines(b, 0, -1, false, {})
     vim.bo[b].modifiable = false
   end
-  collections.render()
-  vim.wait(3000, function()
-    local buf = layout.get_collections_buf()
-    if not buf then return false end
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    return #lines > 1
-  end, 20)
+  -- Wait for this render itself: an items load left over from a previous
+  -- test can redraw the split (its Viewing: line) with older data first.
+  fixture.wait_for(collections.render())
+end
+
+-- The Viewing:/Filter:/Help: lines at the top repeat names (the viewed
+-- collection or feed, filtered tags), so tests that look for an entry by
+-- its text skip them.
+local function is_header(lnum)
+  local entry = collections.get_collection_at_line(lnum)
+  return entry ~= nil and entry.is_header == true
+end
+
+-- The tree's lines (without the header), as { lnum, text }.
+local function tree_lines()
+  local out = {}
+  for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
+    if not is_header(i) then out[#out + 1] = { i, l } end
+  end
+  return out
+end
+
+local function tree_text()
+  return table.concat(vim.tbl_map(function(x) return x[2] end, tree_lines()), "\n")
 end
 
 -- What the collections window actually shows: the pane uses real Vim
@@ -30,7 +47,9 @@ local function screen_text()
   vim.api.nvim_win_call(win, function()
     local l, n = 1, vim.api.nvim_buf_line_count(0)
     while l <= n do
-      if vim.fn.foldclosed(l) ~= -1 then
+      if is_header(l) then
+        l = l + 1
+      elseif vim.fn.foldclosed(l) ~= -1 then
         shown[#shown + 1] = vim.fn.foldtextresult(l)
         l = vim.fn.foldclosedend(l) + 1
       else
@@ -127,25 +146,84 @@ describe("collections (real buffers, fixture db)", function()
     assert.matches("Child of A", screen_text())
   end)
 
+  describe("fugitive/sessman-style header", function()
+    local items = require("zotero.ui.items")
+    local function header()
+      local out = {}
+      for i, l in ipairs(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)) do
+        if not is_header(i) then break end
+        out[#out + 1] = l
+      end
+      return out
+    end
+
+    after_each(function()
+      items.set_tag_filter({})
+      items.load_items(nil)
+      vim.wait(200)
+    end)
+
+    it("shows Viewing: and Help:, then the tree; the cursor starts on My Library", function()
+      items.load_items(nil)
+      render_sync()
+      collections.refresh_display()
+      assert.same({ "Viewing: My Library", "Help:    g?" }, header())
+      -- Where a fresh split starts (line 1 is a header line): on My Library.
+      vim.api.nvim_win_set_cursor(layout.get_collections_win(), { 1, 0 })
+      layout.close_collections()
+      layout.open_collections()
+      local cur = vim.api.nvim_win_get_cursor(layout.get_collections_win())[1]
+      assert.matches("^▼ My Library", vim.api.nvim_buf_get_lines(layout.get_collections_buf(), cur - 1, cur, false)[1])
+    end)
+
+    it("follows the view, and shows Filter: only while something narrows the list", function()
+      items.load_items(1) -- Root A
+      items.set_tag_filter({ "ecology" })
+      render_sync()
+      collections.refresh_display()
+      assert.same({ "Viewing: Root A", "Filter:  tags ecology", "Help:    g?" }, header())
+      items.set_tag_filter({})
+      items.load_trash()
+      vim.wait(300)
+      collections.refresh_display()
+      assert.same({ "Viewing: Trash", "Help:    g?" }, header())
+    end)
+
+    it("keeps Marked and Trash together at the end", function()
+      render_sync()
+      local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
+      assert.same({ "  Marked (0)", "  Trash (2)" }, { lines[#lines - 1], lines[#lines] })
+    end)
+
+    it("uses the standard groups fugitive and sessman use, unless the user set their own", function()
+      require("zotero.ui.highlights").setup()
+      for group, link in pairs({ ZoteroCollectionsLabel = "Label", ZoteroCollectionsHeading = "PreProc",
+        ZoteroCollectionsCount = "Comment", ZoteroCollectionsHelp = "Tag" }) do
+        assert.equals(link, vim.api.nvim_get_hl(0, { name = group }).link)
+      end
+      vim.api.nvim_set_hl(0, "ZoteroCollectionsHeading", { fg = "#ff0000" })
+      require("zotero.ui.highlights").setup()
+      assert.is_nil(vim.api.nvim_get_hl(0, { name = "ZoteroCollectionsHeading" }).link)
+      vim.api.nvim_set_hl(0, "ZoteroCollectionsHeading", { link = "PreProc" })
+    end)
+  end)
+
   it("renders a Feeds section with unread counts, separate from My Library", function()
     render_sync()
     collections.set_section_open("feeds", true)
-    local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false), "\n")
+    local text = tree_text()
     assert.matches("Feeds %(1%)", text)
     assert.matches("Journal RSS %(1%)", text)
     assert.does_not.match("Group Col", text) -- group-library collection stays out
   end)
 
   describe("foldable sections (real Vim folds)", function()
-    local function lines()
-      return vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
-    end
     local text = screen_text
     local function press_on(pattern, keys)
       layout.focus_collections()
-      for i, l in ipairs(lines()) do
-        if l:match(pattern) then
-          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
+      for _, x in ipairs(tree_lines()) do
+        if x[2]:match(pattern) then
+          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { x[1], 0 })
           break
         end
       end
@@ -341,10 +419,9 @@ describe("collections (real buffers, fixture db)", function()
 
     local function press_on(pattern, keys)
       layout.focus_collections()
-      local lines = vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false)
-      for i, l in ipairs(lines) do
-        if l:match(pattern) then
-          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { i, 0 })
+      for _, x in ipairs(tree_lines()) do
+        if x[2]:match(pattern) then
+          vim.api.nvim_win_set_cursor(layout.get_collections_win(), { x[1], 0 })
           break
         end
       end
@@ -357,7 +434,7 @@ describe("collections (real buffers, fixture db)", function()
       h:close()
       require("zotero.db").invalidate_cache()
       render_sync()
-      local text = table.concat(vim.api.nvim_buf_get_lines(layout.get_collections_buf(), 0, -1, false), "\n")
+      local text = tree_text()
       assert.matches("Feeds %(0%)", text)
       assert.does_not.match("Journal RSS", text)
     end)

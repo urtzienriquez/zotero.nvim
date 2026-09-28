@@ -511,6 +511,20 @@ function M.is_feed_mode()
   return current_feed_library_id ~= nil
 end
 
+-- What the list shows and what narrows it, for the collections split's
+-- Viewing:/Filter: lines. Read-only copies.
+function M.view_state()
+  return {
+    collection_id = current_collection_id,
+    feed_name = current_feed_name,
+    trash = is_trash_mode,
+    marked = show_only_marked,
+    search = search_term,
+    tags = vim.deepcopy(tag_filter),
+    types = vim.deepcopy(type_filter),
+  }
+end
+
 function M.get_feed_library_id()
   return current_feed_library_id
 end
@@ -817,6 +831,13 @@ function M.update_status()
     info = info .. "  [marked only]"
   end
   winopt.set(win, "winbar", info)
+
+  -- Keep an open collections split's Viewing:/Filter: lines current.
+  local collections = package.loaded["zotero.ui.collections"]
+  local cwin = layout.get_collections_win()
+  if collections and cwin and vim.api.nvim_win_is_valid(cwin) then
+    collections.refresh_display()
+  end
 end
 
 local function item_under_cursor()

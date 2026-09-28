@@ -40,11 +40,66 @@ local _structure_version = 0
 local _display_lines_cache = nil
 local _display_lines_cache_key = nil
 
+-- The lines at the top, like fugitive's Head:/Help: and sessman's
+-- Session:/Help:. Filter: only while something narrows the list.
+local HEADER_LABEL_WIDTH = #"Viewing: "
+
+local function header_entries()
+  local v = items.view_state()
+  local viewing = "My Library"
+  if v.trash then
+    viewing = "Trash"
+  elseif v.marked then
+    viewing = "Marked items"
+  elseif v.feed_name then
+    viewing = v.feed_name .. " (feed)"
+  elseif v.collection_id then
+    for _, col in ipairs(collections_data) do
+      if col.collectionID == v.collection_id then
+        viewing = col.collectionName
+        break
+      end
+    end
+  end
+  local filters = {}
+  if v.search ~= "" then
+    filters[#filters + 1] = 'search "' .. v.search .. '"'
+  end
+  if #v.tags > 0 then
+    filters[#filters + 1] = "tags " .. table.concat(v.tags, " + ")
+  end
+  if #v.types.types > 0 then
+    filters[#filters + 1] = (v.types.mode == "include" and "only " or "hiding ") .. table.concat(v.types.types, ", ")
+  end
+
+  local rows = { { "Viewing:", viewing, "ZoteroCollectionsValue" } }
+  if #filters > 0 then
+    rows[#rows + 1] = { "Filter:", table.concat(filters, "; "), "ZoteroCollectionsFilter" }
+  end
+  rows[#rows + 1] = { "Help:", "g?", "ZoteroCollectionsHelp" }
+  local out = {}
+  for _, r in ipairs(rows) do
+    out[#out + 1] = {
+      line = r[1] .. string.rep(" ", HEADER_LABEL_WIDTH - #r[1]) .. r[2],
+      is_header = true,
+      label_len = #r[1],
+      value_hl = r[3],
+      fold_level = "0",
+    }
+  end
+  return out
+end
+
 local function get_display_lines()
   local marked_count = items.get_marked_count()
   local tag_filter = items.get_tag_filter()
+  local header = header_entries()
+  local header_text = {}
+  for _, h in ipairs(header) do
+    header_text[#header_text + 1] = h.line
+  end
   local cache_key = table.concat({ _structure_version, total_item_count, trash_count, marked_count,
-    table.concat(tag_filter, "\31") }, "|")
+    table.concat(tag_filter, "\31"), table.concat(header_text, "\31") }, "|")
   -- feeds_data is only replaced in load_data(), which bumps _structure_version.
   if _display_lines_cache and _display_lines_cache_key == cache_key then
     return _display_lines_cache
@@ -52,7 +107,8 @@ local function get_display_lines()
 
   -- Foldable lines always say ▼ in the buffer; a closed fold is displayed
   -- through foldtext(), which shows ▶ instead.
-  local lines = {}
+  local lines = header
+  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
   table.insert(lines, {
     line = "▼ My Library (" .. tostring(total_item_count) .. ")",
     collectionID = nil,
@@ -162,15 +218,13 @@ local function get_display_lines()
   end
 
   table.insert(lines, {
-    line = "  Marked Items (" .. tostring(marked_count) .. ")",
+    line = "  Marked (" .. tostring(marked_count) .. ")",
     collectionID = nil,
     has_children = false,
     depth = 0,
     is_marked_items = true,
     fold_level = "0",
   })
-
-  table.insert(lines, { line = "", collectionID = nil, has_children = false, depth = 0, is_separator = true, fold_level = "0" })
 
   table.insert(lines, {
     line = "  Trash (" .. tostring(trash_count) .. ")",
@@ -220,10 +274,11 @@ local function load_data()
   _structure_version = _structure_version + 1
 end
 
+-- Returns the task (tests wait on it).
 function M.render()
   _render_generation = _render_generation + 1
   local generation = _render_generation
-  async_mod.run("zotero:ui.collections.render", function()
+  return async_mod.run("zotero:ui.collections.render", function()
     load_data()
 
     if generation ~= _render_generation then
@@ -284,8 +339,9 @@ function M.foldtext()
   return {
     { indent, "Normal" },
     { "▶ ", "ZoteroCollectionArrow" },
-    { name or rest, "Normal" },
-    { count or "", "ZoteroItemCount" },
+    -- Unindented: a section (My Library, Feeds, Tags), coloured as a heading.
+    { name or rest, indent == "" and "ZoteroCollectionsHeading" or "Normal" },
+    { count or "", "ZoteroCollectionsCount" },
   }
 end
 
@@ -383,6 +439,16 @@ function M.refresh_display()
   if cursor_line < 1 then
     cursor_line = 1
   end
+  -- Start on My Library rather than on the Viewing:/Help: lines.
+  local at = display_lines[cursor_line]
+  if at and (at.is_header or at.is_separator) then
+    for i, dl in ipairs(display_lines) do
+      if dl.is_all_items then
+        cursor_line = i
+        break
+      end
+    end
+  end
 
   M.apply_highlights(buf)
 
@@ -408,7 +474,7 @@ function M.apply_highlights(buf)
     if count then
       local count_start = line:find("%(" .. count .. "%)%s*$")
       if count_start then
-        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroItemCount", i - 1, count_start - 1, -1)
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionsCount", i - 1, count_start - 1, -1)
       end
     end
 
@@ -417,6 +483,20 @@ function M.apply_highlights(buf)
       local arrow_pos = line:find("[▶▼]")
       if arrow_pos then
         vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionArrow", i - 1, arrow_pos - 1, arrow_pos)
+      end
+    end
+  end
+
+  -- Header lines and the section headings, fugitive/sessman style.
+  for i, dl in ipairs(get_display_lines()) do
+    if lines[i] == dl.line then
+      if dl.is_header then
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionsLabel", i - 1, 0, dl.label_len)
+        vim.api.nvim_buf_add_highlight(buf, ns, dl.value_hl, i - 1, HEADER_LABEL_WIDTH, -1)
+      elseif dl.is_all_items or dl.is_feeds_header or dl.is_tags_header then
+        local name_start = #"▼ "
+        local count_start = dl.line:find(" %(%d+%)%s*$") or (#dl.line + 1)
+        vim.api.nvim_buf_add_highlight(buf, ns, "ZoteroCollectionsHeading", i - 1, name_start, count_start - 1)
       end
     end
   end
