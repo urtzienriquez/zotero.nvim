@@ -88,6 +88,28 @@ describe("layout", function()
     assert.equals(layout.get_items_win(), vim.api.nvim_get_current_win())
   end)
 
+  it("the collections split keeps the user's sign/number columns; ts only touches the items window", function()
+    local saved = { vim.go.number, vim.go.relativenumber, vim.go.signcolumn }
+    vim.go.number, vim.go.relativenumber, vim.go.signcolumn = true, false, "yes"
+    layout.create_layout()
+    layout.set_keymaps()
+    layout.open_collections()
+    local cwin, iwin = layout.get_collections_win(), layout.get_items_win()
+    assert.is_true(vim.wo[cwin].number)
+    assert.equals("yes", vim.wo[cwin].signcolumn) -- the "free" columns, as in fugitive
+    assert.is_false(vim.wo[iwin].number)
+    assert.equals("no", vim.wo[iwin].signcolumn)
+    layout.toggle_statuscolumn()
+    assert.is_true(vim.wo[iwin].number)
+    assert.is_false(vim.wo[cwin].relativenumber) -- untouched: still the user's
+    layout.toggle_statuscolumn()
+    local mapped = vim.api.nvim_buf_call(layout.get_collections_buf(), function()
+      return vim.fn.maparg("ts", "n", false, true).buffer == 1
+    end)
+    assert.is_false(mapped)
+    vim.go.number, vim.go.relativenumber, vim.go.signcolumn = unpack(saved)
+  end)
+
   it("forgets the split when it's closed with :q", function()
     layout.create_layout()
     layout.open_collections()

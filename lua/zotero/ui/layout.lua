@@ -15,17 +15,14 @@ local state = {
 
 local statuscolumn_visible = false
 
+-- The items window hides the sign/number columns unless toggled with ts.
+-- The collections split doesn't touch them: like fugitive's status window
+-- and sessman's pane, it keeps the user's own settings.
 local function apply_statuscolumn(win)
   local wins = {}
+  win = win or state.items_win
   if win and vim.api.nvim_win_is_valid(win) then
     table.insert(wins, win)
-  else
-    if state.collections_win and vim.api.nvim_win_is_valid(state.collections_win) then
-      table.insert(wins, state.collections_win)
-    end
-    if state.items_win and vim.api.nvim_win_is_valid(state.items_win) then
-      table.insert(wins, state.items_win)
-    end
   end
   for _, w in ipairs(wins) do
     if statuscolumn_visible then
@@ -110,19 +107,16 @@ function M.set_keymaps()
     return
   end
 
-  local collections_buf = state.collections_buf
   local items_buf = state.items_buf
 
   local toggle_lhs = km.toggle_statuscolumn
   if toggle_lhs then
-    for _, buf in ipairs({ collections_buf, items_buf }) do
-      vim.keymap.set("n", toggle_lhs, M.toggle_statuscolumn, {
-        buffer = buf,
-        silent = true,
-        nowait = true,
-        desc = "toggle statuscolumn",
-      })
-    end
+    vim.keymap.set("n", toggle_lhs, M.toggle_statuscolumn, {
+      buffer = items_buf,
+      silent = true,
+      nowait = true,
+      desc = "toggle statuscolumn",
+    })
   end
 end
 
@@ -162,7 +156,12 @@ function M.open_collections()
   winopt.set(win, "wrap", false)
   winopt.set(win, "spell", false)
   winopt.set(win, "cursorline", true)
-  apply_statuscolumn(win)
+  -- :split copied the items window's hidden columns (and Neovim may restore
+  -- what this buffer had last time): give the split the user's own sign and
+  -- number columns, as fugitive's and sessman's windows have.
+  for _, name in ipairs({ "signcolumn", "number", "relativenumber", "statuscolumn", "foldcolumn" }) do
+    winopt.set(win, name, vim.api.nvim_get_option_value(name, { scope = "global" }))
+  end
   state.collections_win = win
   -- However it closes (<CR>, gq, :q), keep its folds and cursor for next time.
   vim.api.nvim_create_autocmd("WinClosed", {

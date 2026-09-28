@@ -244,7 +244,9 @@ Collections split~
   narrows it (a search, tags, item types; only when there is one), and
   `Help:` the key for this help. Its colours link to standard highlight
   groups (Label, PreProc, Comment, Tag, Directory, WarningMsg), so they
-  follow your colorscheme; to change one, define the group yourself
+  follow your colorscheme. Its sign and number columns are left to your
+  own settings ('signcolumn', 'number'...), as in fugitive and sessman
+  windows. To change a colour, define the group yourself
   (ZoteroCollectionsLabel, ZoteroCollectionsHeading,
   ZoteroCollectionsCount, ZoteroCollectionsValue, ZoteroCollectionsFilter,
   ZoteroCollectionsHelp, ZoteroCollectionArrow).
@@ -544,7 +546,6 @@ Collections split~                                 *zotero-collections-maps*
   aa              Add a collection (on Feeds or a feed: add a feed)
   dd              Trash the collection (on a feed: unsubscribe)
   R               Refresh (on a feed: fetch new items; on Feeds: all)
-  ts              Toggle statuscolumn (signs, line numbers)
   gl / gm / gd    Go to My Library / marked items / Trash (closes the split)
   gf              Go to the Feeds section
   gq              Close the split

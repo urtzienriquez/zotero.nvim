@@ -47,7 +47,7 @@ M.defaults = {
     items_toggle_colored_tag = "t",
     items_toggle_tag = "tt",
     items_filter_tag = "fT",
-    -- t: toggle view (ts works in the collections split too)
+    -- t: toggle view (ts: sign/number columns of the items window)
     items_toggle_columns = "tv",
     toggle_statuscolumn = "ts",
     -- <family>?: :help at that family's section

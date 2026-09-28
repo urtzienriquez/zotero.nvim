@@ -195,7 +195,7 @@ require("zotero").setup({
 
 Column presets can be cycled with `tv`: configured, compact, normal, full. The preset determines which subset of the configured columns is shown.
 
-By default the Zotero windows hide the statuscolumn (no signcolumn, line numbers, or relative numbers). Press `ts` in either window to toggle the full statuscolumn on/off for both.
+By default the items window hides the statuscolumn (no signcolumn, line numbers, or relative numbers); press `ts` there to toggle it. The collections split keeps your own settings, like fugitive's and sessman's windows.
 
 ## Keymaps
 
@@ -227,7 +227,6 @@ My Library, Feeds, Tags and collections with sub-collections are real Vim folds,
 | `dd`              | Trash the collection (on a feed: unsubscribe; on a tag: delete it from all items; on a visual selection of tags: delete them all) |
 | `cc`              | On a tag: assign/remove its colour and number key (1–9), like Zotero's "Assign Colour…" |
 | `R`               | Refresh (on a feed: fetch new items; on Feeds: all feeds)  |
-| `ts`              | Toggle statuscolumn                                        |
 | `gl` `gf` `gm` `gd` | Go to My Library / Feeds / marked items / Trash          |
 | `gq`              | Close the split                                            |
 | `g?`              | Open `:help` at the collections keymaps                    |
