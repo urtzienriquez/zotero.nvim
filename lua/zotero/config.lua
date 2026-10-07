@@ -121,6 +121,9 @@ end
 
 function M.set(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  if M.options.db_path then
+    M.options.db_path = vim.fn.expand(M.options.db_path)
+  end
   if not M.options.db_path then
     M.options.db_path = auto_detect_db()
   end

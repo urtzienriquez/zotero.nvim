@@ -27,6 +27,13 @@ describe("config.set / config.get", function()
     assert.equals("/nonexistent/path/zotero.sqlite", config.get().db_path)
   end)
 
+  it("expands ~ (and env vars) in an explicit db_path", function()
+    local config = fresh_config()
+    config.set({ db_path = "~/foo/zotero.sqlite" })
+    assert.equals(vim.fn.expand("~/foo/zotero.sqlite"), config.get().db_path)
+    assert.is_nil(config.get().db_path:find("~", 1, true))
+  end)
+
   it("defaults to the OS opener and no hidden item types", function()
     local config = fresh_config()
     config.set({})
